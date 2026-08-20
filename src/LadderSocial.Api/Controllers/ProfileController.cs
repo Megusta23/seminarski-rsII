@@ -1,3 +1,4 @@
+using LadderSocial.Application.Features.Auth;
 using LadderSocial.Application.Features.Profiles;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -7,7 +8,9 @@ namespace LadderSocial.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/profile")]
-public sealed class ProfileController(IProfileService profileService) : ControllerBase
+public sealed class ProfileController(
+    IProfileService profileService,
+    IPasswordRecoveryService passwordRecoveryService) : ControllerBase
 {
     [HttpGet("me")]
     [ProducesResponseType<CurrentProfileResponse>(StatusCodes.Status200OK)]
@@ -18,14 +21,23 @@ public sealed class ProfileController(IProfileService profileService) : Controll
         Ok(await profileService.GetCurrentAsync(cancellationToken));
 
     [HttpPut("me")]
+    [ProducesResponseType<CurrentProfileResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<CurrentProfileResponse>> UpdateCurrent(
+        [FromBody] UpdateProfileRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await profileService.UpdateCurrentAsync(request, cancellationToken));
+
+    [HttpPost("change-password")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> UpdateCurrent(
-        [FromBody] UpdateProfileRequest request,
+    public async Task<IActionResult> ChangePassword(
+        [FromBody] ChangePasswordRequest request,
         CancellationToken cancellationToken)
     {
-        await profileService.UpdateCurrentAsync(request, cancellationToken);
+        await passwordRecoveryService.ChangePasswordAsync(request, cancellationToken);
         return NoContent();
     }
 }

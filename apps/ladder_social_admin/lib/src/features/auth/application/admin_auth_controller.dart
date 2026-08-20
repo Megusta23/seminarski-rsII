@@ -40,6 +40,39 @@ final class AdminAuthController extends StateNotifier<AdminAuthState> {
     }
   }
 
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final AuthSession? currentSession = state.session;
+    if (currentSession == null) {
+      state = const AdminAuthState.unauthenticated(
+        errorMessage: 'Administrator authentication is required.',
+      );
+      return false;
+    }
+
+    state = AdminAuthState.busy(session: currentSession);
+    try {
+      await _authRepository.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      state = const AdminAuthState.unauthenticated();
+      return true;
+    } catch (error) {
+      final ApiException exception = ApiException.from(error);
+      state = AdminAuthState.authenticated(
+        currentSession,
+        errorMessage: exception.message,
+        validationErrors: exception.validationErrors,
+      );
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     final AuthSession? currentSession = state.session;
     state = AdminAuthState.busy(session: currentSession);

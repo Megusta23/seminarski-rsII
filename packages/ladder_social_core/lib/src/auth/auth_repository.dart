@@ -70,8 +70,7 @@ final class AuthRepository {
     }
 
     try {
-      final AuthSession currentSession =
-          await _apiService.refresh(refreshToken);
+      final AuthSession currentSession = await _apiService.refresh(refreshToken);
       await _saveSession(currentSession);
       await _apiService.logout(currentSession.refreshToken);
       await _tokenStore.clear();
@@ -84,10 +83,59 @@ final class AuthRepository {
     }
   }
 
+  Future<OperationMessage> forgotPassword(String email) =>
+      _apiService.forgotPassword(email.trim());
+
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String confirmPassword,
+  }) =>
+      _apiService.resetPassword(
+        email: email.trim(),
+        code: code.trim(),
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    await _apiService.changePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+      confirmPassword: confirmPassword,
+    );
+    await _tokenStore.clear();
+  }
+
   Future<void> clearLocalSession() => _tokenStore.clear();
 
   Future<CurrentProfile> getCurrentProfile() =>
       _apiService.getCurrentProfile();
+
+  Future<CurrentProfile> updateCurrentProfile({
+    required String firstName,
+    required String lastName,
+    String? bio,
+    String? cityId,
+    DateTime? dateOfBirth,
+  }) {
+    final String? normalizedBio = bio == null || bio.trim().isEmpty
+        ? null
+        : bio.trim();
+
+    return _apiService.updateCurrentProfile(
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      bio: normalizedBio,
+      cityId: cityId,
+      dateOfBirth: dateOfBirth,
+    );
+  }
 
   Future<AdminAccessResult> checkAdminAccess() =>
       _apiService.checkAdminAccess();

@@ -25,5 +25,5 @@ public sealed record UpdateProfileRequest(
 public interface IProfileService
 {
     Task<CurrentProfileResponse> GetCurrentAsync(CancellationToken cancellationToken);
-    Task UpdateCurrentAsync(UpdateProfileRequest request, CancellationToken cancellationToken);
+    Task<CurrentProfileResponse> UpdateCurrentAsync(UpdateProfileRequest request, CancellationToken cancellationToken);
 }

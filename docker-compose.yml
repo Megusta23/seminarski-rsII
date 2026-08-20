@@ -34,7 +34,7 @@ services:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
     ports:
       - "${RABBITMQ_HOST_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - ladder-social-rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
@@ -42,6 +42,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  smtp4dev:
+    image: rnwood/smtp4dev:v3
+    container_name: ladder-social-smtp4dev
+    environment:
+      ServerOptions__HostName: smtp4dev
+    ports:
+      - "127.0.0.1:${SMTP4DEV_WEB_HOST_PORT:-5002}:80"
+      - "127.0.0.1:${SMTP_HOST_PORT:-2525}:25"
+    volumes:
+      - ladder-social-smtp4dev-data:/smtp4dev
     restart: unless-stopped
 
   api:
@@ -59,6 +71,11 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       JWT_ACCESS_TOKEN_MINUTES: ${JWT_ACCESS_TOKEN_MINUTES:-30}
       JWT_REFRESH_TOKEN_DAYS: ${JWT_REFRESH_TOKEN_DAYS:-14}
+      PASSWORD_RESET_HASH_KEY: ${PASSWORD_RESET_HASH_KEY}
+      PASSWORD_RESET_EVENT_KEY: ${PASSWORD_RESET_EVENT_KEY}
+      PASSWORD_RESET_CODE_MINUTES: ${PASSWORD_RESET_CODE_MINUTES:-15}
+      PASSWORD_RESET_MAX_ATTEMPTS: ${PASSWORD_RESET_MAX_ATTEMPTS:-5}
+      PASSWORD_RESET_MIN_REQUEST_INTERVAL_SECONDS: ${PASSWORD_RESET_MIN_REQUEST_INTERVAL_SECONDS:-60}
       CORS_ORIGINS: ${CORS_ORIGINS}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
@@ -69,6 +86,12 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME:-ladder-social.events}
+      RABBITMQ_PASSWORD_RESET_QUEUE: ${RABBITMQ_PASSWORD_RESET_QUEUE:-ladder-social.password-reset-email}
+      RABBITMQ_PASSWORD_RESET_ROUTING_KEY: ${RABBITMQ_PASSWORD_RESET_ROUTING_KEY:-auth.password-reset.requested}
+      RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-ladder-social.dead-letter}
+      RABBITMQ_PASSWORD_RESET_DEAD_LETTER_QUEUE: ${RABBITMQ_PASSWORD_RESET_DEAD_LETTER_QUEUE:-ladder-social.password-reset-email.dead}
+      RABBITMQ_PASSWORD_RESET_DEAD_LETTER_ROUTING_KEY: ${RABBITMQ_PASSWORD_RESET_DEAD_LETTER_ROUTING_KEY:-auth.password-reset.dead}
     ports:
       - "${API_HOST_PORT:-5000}:8080"
     depends_on:
@@ -87,19 +110,40 @@ services:
       DOTNET_ENVIRONMENT: Development
       DATABASE_CONNECTION_STRING: Server=database,1433;Database=${DATABASE_NAME:-220087};User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True
       DATABASE_BOOTSTRAP_MODE: ${DATABASE_BOOTSTRAP_MODE:-migrate}
+      PASSWORD_RESET_HASH_KEY: ${PASSWORD_RESET_HASH_KEY}
+      PASSWORD_RESET_EVENT_KEY: ${PASSWORD_RESET_EVENT_KEY}
+      PASSWORD_RESET_CODE_MINUTES: ${PASSWORD_RESET_CODE_MINUTES:-15}
+      PASSWORD_RESET_MAX_ATTEMPTS: ${PASSWORD_RESET_MAX_ATTEMPTS:-5}
+      PASSWORD_RESET_MIN_REQUEST_INTERVAL_SECONDS: ${PASSWORD_RESET_MIN_REQUEST_INTERVAL_SECONDS:-60}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
-      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-30}
+      RABBITMQ_EXCHANGE_NAME: ${RABBITMQ_EXCHANGE_NAME:-ladder-social.events}
+      RABBITMQ_PASSWORD_RESET_QUEUE: ${RABBITMQ_PASSWORD_RESET_QUEUE:-ladder-social.password-reset-email}
+      RABBITMQ_PASSWORD_RESET_ROUTING_KEY: ${RABBITMQ_PASSWORD_RESET_ROUTING_KEY:-auth.password-reset.requested}
+      RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-ladder-social.dead-letter}
+      RABBITMQ_PASSWORD_RESET_DEAD_LETTER_QUEUE: ${RABBITMQ_PASSWORD_RESET_DEAD_LETTER_QUEUE:-ladder-social.password-reset-email.dead}
+      RABBITMQ_PASSWORD_RESET_DEAD_LETTER_ROUTING_KEY: ${RABBITMQ_PASSWORD_RESET_DEAD_LETTER_ROUTING_KEY:-auth.password-reset.dead}
+      SMTP_HOST: smtp4dev
+      SMTP_PORT: 25
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+      SMTP_USE_STARTTLS: ${SMTP_USE_STARTTLS:-false}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-no-reply@laddersocial.local}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Ladder Social}
     depends_on:
       database:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      smtp4dev:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
   ladder-social-sql-data:
   ladder-social-rabbitmq-data:
+  ladder-social-smtp4dev-data:

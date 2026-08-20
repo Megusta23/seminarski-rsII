@@ -33,10 +33,13 @@ final class AdminAuthState {
   const AdminAuthState.authenticated(
     AuthSession session, {
     String? errorMessage,
+    Map<String, List<String>> validationErrors =
+        const <String, List<String>>{},
   }) : this(
           status: AdminAuthStatus.authenticated,
           session: session,
           errorMessage: errorMessage,
+          validationErrors: validationErrors,
         );
 
   final AdminAuthStatus status;

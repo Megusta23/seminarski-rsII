@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/features/auth/application/auth_state.dart';
@@ -17,7 +18,7 @@ final class AuthenticatedHomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Authentication test'),
+        title: const Text('Ladder Social'),
         actions: <Widget>[
           IconButton(
             tooltip: 'Reload profile',
@@ -72,9 +73,16 @@ final class AuthenticatedHomeScreen extends ConsumerWidget {
                       children: <Widget>[
                         const Icon(Icons.verified_user_outlined),
                         const SizedBox(width: 10),
-                        Text(
-                          'Protected /api/profile/me result',
-                          style: Theme.of(context).textTheme.titleMedium,
+                        Expanded(
+                          child: Text(
+                            'Protected profile',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Edit profile',
+                          onPressed: () => context.push('/edit-profile'),
+                          icon: const Icon(Icons.edit_outlined),
                         ),
                       ],
                     ),
@@ -82,12 +90,18 @@ final class AuthenticatedHomeScreen extends ConsumerWidget {
                     _InfoRow(label: 'First name', value: value.firstName),
                     _InfoRow(label: 'Last name', value: value.lastName),
                     _InfoRow(
+                      label: 'Biography',
+                      value: value.bio ?? 'Not provided',
+                    ),
+                    _InfoRow(
                       label: 'City',
                       value: value.cityName ?? 'Not selected',
                     ),
                     _InfoRow(
-                      label: 'Profile roles',
-                      value: value.roles.join(', '),
+                      label: 'Date of birth',
+                      value: value.dateOfBirth == null
+                          ? 'Not provided'
+                          : _date(value.dateOfBirth!),
                     ),
                   ],
                 ),
@@ -108,13 +122,38 @@ final class AuthenticatedHomeScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 16),
+          Card(
+            child: Column(
+              children: <Widget>[
+                ListTile(
+                  leading: const Icon(Icons.manage_accounts_outlined),
+                  title: const Text('Edit profile'),
+                  subtitle: const Text(
+                    'Update your name, biography, city and date of birth.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/edit-profile'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.password_outlined),
+                  title: const Text('Change password'),
+                  subtitle: const Text(
+                    'All active sessions are revoked after a password change.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/change-password'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           const Card(
             child: ListTile(
-              leading: Icon(Icons.security),
-              title: Text('What is being tested'),
+              leading: Icon(Icons.construction_outlined),
+              title: Text('Next business module'),
               subtitle: Text(
-                'JWT authorization, secure token storage, refresh-token rotation, '
-                'protected profile access and server-side logout invalidation.',
+                'Task CRUD, completion history and the mobile to-do master-detail flow.',
               ),
             ),
           ),
@@ -132,6 +171,12 @@ final class AuthenticatedHomeScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  static String _date(DateTime value) {
+    final String month = value.month.toString().padLeft(2, '0');
+    final String day = value.day.toString().padLeft(2, '0');
+    return '${value.year}-$month-$day';
   }
 }
 

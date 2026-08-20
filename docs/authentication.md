@@ -7,9 +7,12 @@
 | POST | `/api/auth/register` | Anonymous | Creates a regular User account and returns a token pair. |
 | POST | `/api/auth/login` | Anonymous | Validates credentials, lockout and account status. |
 | POST | `/api/auth/refresh` | Refresh token | Rotates a one-time refresh token and returns a new token pair. |
+| POST | `/api/auth/forgot-password` | Anonymous | Queues a generic, rate-limited password-reset email response. |
+| POST | `/api/auth/reset-password` | Anonymous | Consumes a one-time six-digit code and resets the password. |
 | POST | `/api/auth/logout` | Bearer JWT | Revokes the supplied refresh token and invalidates the current access-token security stamp. |
 | GET | `/api/profile/me` | Bearer JWT | Returns the current user and profile derived from JWT identity. |
 | PUT | `/api/profile/me` | Bearer JWT | Updates the current user's profile. |
+| POST | `/api/profile/change-password` | Bearer JWT | Changes the current password and revokes every session. |
 | GET | `/api/admin/access` | Admin role | Confirms that JWT role authorization works. |
 
 ## Security behavior
@@ -140,3 +143,25 @@ docker compose --env-file .env up --build -d
 The `-v` option deletes local SQL Server and RabbitMQ volumes. Do not use it when you need to preserve local data.
 
 Do not commit `.env` or real secrets.
+
+## Password recovery and profile continuation
+
+The next authentication-related routes are now implemented:
+
+```text
+POST /api/auth/forgot-password
+POST /api/auth/reset-password
+POST /api/profile/change-password
+```
+
+Current-profile editing and authenticated reference-data lookups are also available:
+
+```text
+PUT /api/profile/me
+GET /api/reference-data/countries
+GET /api/reference-data/cities
+GET /api/reference-data/task-categories
+GET /api/reference-data/recurrence-types
+```
+
+For environment setup, RabbitMQ/Worker email delivery, smtp4dev usage and the new test scripts, see [`password-recovery-and-profile.md`](password-recovery-and-profile.md).

@@ -7,7 +7,9 @@ namespace LadderSocial.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/auth")]
-public sealed class AuthController(IAuthService authService) : ControllerBase
+public sealed class AuthController(
+    IAuthService authService,
+    IPasswordRecoveryService passwordRecoveryService) : ControllerBase
 {
     [HttpPost("register")]
     [AllowAnonymous]
@@ -48,6 +50,34 @@ public sealed class AuthController(IAuthService authService) : ControllerBase
     {
         SetNoStoreHeaders();
         return Ok(await authService.RefreshAsync(request, cancellationToken));
+    }
+
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [ProducesResponseType<ForgotPasswordResponse>(StatusCodes.Status202Accepted)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ForgotPasswordResponse>> ForgotPassword(
+        [FromBody] ForgotPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        SetNoStoreHeaders();
+        var response = await passwordRecoveryService.ForgotPasswordAsync(
+            request,
+            cancellationToken);
+        return Accepted(response);
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword(
+        [FromBody] ResetPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        SetNoStoreHeaders();
+        await passwordRecoveryService.ResetPasswordAsync(request, cancellationToken);
+        return NoContent();
     }
 
     [HttpPost("logout")]

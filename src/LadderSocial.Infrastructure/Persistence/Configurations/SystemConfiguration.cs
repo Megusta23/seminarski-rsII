@@ -71,3 +71,20 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.HasIndex(x => new { x.Status, x.NextAttemptAtUtc, x.CreatedAtUtc });
     }
 }
+
+public sealed class PasswordResetRequestConfiguration : IEntityTypeConfiguration<PasswordResetRequest>
+{
+    public void Configure(EntityTypeBuilder<PasswordResetRequest> builder)
+    {
+        builder.ToTable("PasswordResetRequests");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.CodeHash).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.LastDeliveryError).HasMaxLength(2000);
+        builder.HasIndex(x => new { x.UserId, x.CreatedAtUtc });
+        builder.HasIndex(x => x.ExpiresAtUtc);
+        builder.HasOne<AppUser>()
+            .WithMany()
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}

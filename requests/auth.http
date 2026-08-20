@@ -1,0 +1,146 @@
+@baseUrl = http://localhost:5001
+@mobileEmail = mobile@laddersocial.local
+@mobilePassword = Mobile_Test_220087!
+@adminEmail = admin@laddersocial.local
+@adminPassword = Admin_Test_220087!
+@registrationEmail = auth.user.1@example.com
+@registrationPassword = Auth_Test_220087!
+
+### Health - expect 200
+GET {{baseUrl}}/api/health
+Accept: application/json
+
+### Anonymous protected request - expect 401 ProblemDetails
+GET {{baseUrl}}/api/profile/me
+Accept: application/json
+
+### Register a new regular user - expect 201
+# Change registrationEmail before repeating the complete collection.
+# role and isAdmin are intentionally ignored because they are not request fields.
+# @name registerUser
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "{{registrationEmail}}",
+  "password": "{{registrationPassword}}",
+  "confirmPassword": "{{registrationPassword}}",
+  "firstName": "Auth",
+  "lastName": "Tester",
+  "role": "Admin",
+  "isAdmin": true
+}
+
+### Duplicate registration - expect 409
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "{{registrationEmail}}",
+  "password": "{{registrationPassword}}",
+  "confirmPassword": "{{registrationPassword}}",
+  "firstName": "Auth",
+  "lastName": "Tester"
+}
+
+### Wrong password - expect 401
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "{{registrationEmail}}",
+  "password": "Definitely_Wrong_220087!"
+}
+
+### Protected profile using the registered user's token - expect 200
+GET {{baseUrl}}/api/profile/me
+Accept: application/json
+Authorization: Bearer {{registerUser.response.body.$.accessToken}}
+
+### Regular user on the admin endpoint - expect 403
+GET {{baseUrl}}/api/admin/access
+Accept: application/json
+Authorization: Bearer {{registerUser.response.body.$.accessToken}}
+
+### Rotate the registered user's refresh token - expect 200
+# @name refreshUser
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+Accept: application/json
+
+{
+  "refreshToken": "{{registerUser.response.body.$.refreshToken}}"
+}
+
+### Reuse old refresh token - expect 401
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+Accept: application/json
+
+{
+  "refreshToken": "{{registerUser.response.body.$.refreshToken}}"
+}
+
+### Log out with the rotated token pair - expect 204
+POST {{baseUrl}}/api/auth/logout
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer {{refreshUser.response.body.$.accessToken}}
+
+{
+  "refreshToken": "{{refreshUser.response.body.$.refreshToken}}"
+}
+
+### Logged-out access token - expect 401
+GET {{baseUrl}}/api/profile/me
+Accept: application/json
+Authorization: Bearer {{refreshUser.response.body.$.accessToken}}
+
+### Logged-out refresh token - expect 401
+POST {{baseUrl}}/api/auth/refresh
+Content-Type: application/json
+Accept: application/json
+
+{
+  "refreshToken": "{{refreshUser.response.body.$.refreshToken}}"
+}
+
+### Login as seeded mobile user - expect 200
+# @name loginMobile
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "{{mobileEmail}}",
+  "password": "{{mobilePassword}}"
+}
+
+### Seeded mobile user profile - expect 200
+GET {{baseUrl}}/api/profile/me
+Accept: application/json
+Authorization: Bearer {{loginMobile.response.body.$.accessToken}}
+
+### Seeded mobile user on admin endpoint - expect 403
+GET {{baseUrl}}/api/admin/access
+Accept: application/json
+Authorization: Bearer {{loginMobile.response.body.$.accessToken}}
+
+### Login as seeded administrator - expect 200
+# @name loginAdmin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+### Seeded administrator on admin endpoint - expect 200
+GET {{baseUrl}}/api/admin/access
+Accept: application/json
+Authorization: Bearer {{loginAdmin.response.body.$.accessToken}}

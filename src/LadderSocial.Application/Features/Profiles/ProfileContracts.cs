@@ -1,0 +1,29 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace LadderSocial.Application.Features.Profiles;
+
+public sealed record CurrentProfileResponse(
+    Guid UserId,
+    string Email,
+    string DisplayName,
+    string FirstName,
+    string LastName,
+    string? Bio,
+    string? AvatarUrl,
+    Guid? CityId,
+    string? CityName,
+    DateOnly? DateOfBirth,
+    IReadOnlyCollection<string> Roles);
+
+public sealed record UpdateProfileRequest(
+    [Required, StringLength(100)] string FirstName,
+    [Required, StringLength(100)] string LastName,
+    [StringLength(500)] string? Bio,
+    Guid? CityId,
+    DateOnly? DateOfBirth);
+
+public interface IProfileService
+{
+    Task<CurrentProfileResponse> GetCurrentAsync(CancellationToken cancellationToken);
+    Task UpdateCurrentAsync(UpdateProfileRequest request, CancellationToken cancellationToken);
+}

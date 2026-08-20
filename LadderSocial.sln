@@ -1,0 +1,54 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LadderSocial.Domain", "src\LadderSocial.Domain\LadderSocial.Domain.csproj", "{A093F3D4-DC4F-5C92-B0DE-E8417709DCB8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LadderSocial.Application", "src\LadderSocial.Application\LadderSocial.Application.csproj", "{02812F2A-AE6D-554F-83D9-53A2ACE0349B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LadderSocial.Infrastructure", "src\LadderSocial.Infrastructure\LadderSocial.Infrastructure.csproj", "{2A7E5D97-F295-510C-84A9-E152706C7C7D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LadderSocial.Api", "src\LadderSocial.Api\LadderSocial.Api.csproj", "{8E8F1598-AE90-5424-A410-80E963C85631}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LadderSocial.Worker", "src\LadderSocial.Worker\LadderSocial.Worker.csproj", "{E6F542EA-6319-5D29-9FA1-A56ACA6000AC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LadderSocial.UnitTests", "tests\LadderSocial.UnitTests\LadderSocial.UnitTests.csproj", "{B478060E-9564-5D41-B917-4E68E5436782}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A093F3D4-DC4F-5C92-B0DE-E8417709DCB8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A093F3D4-DC4F-5C92-B0DE-E8417709DCB8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A093F3D4-DC4F-5C92-B0DE-E8417709DCB8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A093F3D4-DC4F-5C92-B0DE-E8417709DCB8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{02812F2A-AE6D-554F-83D9-53A2ACE0349B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{02812F2A-AE6D-554F-83D9-53A2ACE0349B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{02812F2A-AE6D-554F-83D9-53A2ACE0349B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{02812F2A-AE6D-554F-83D9-53A2ACE0349B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2A7E5D97-F295-510C-84A9-E152706C7C7D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A7E5D97-F295-510C-84A9-E152706C7C7D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A7E5D97-F295-510C-84A9-E152706C7C7D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A7E5D97-F295-510C-84A9-E152706C7C7D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8E8F1598-AE90-5424-A410-80E963C85631}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8E8F1598-AE90-5424-A410-80E963C85631}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8E8F1598-AE90-5424-A410-80E963C85631}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8E8F1598-AE90-5424-A410-80E963C85631}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E6F542EA-6319-5D29-9FA1-A56ACA6000AC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E6F542EA-6319-5D29-9FA1-A56ACA6000AC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E6F542EA-6319-5D29-9FA1-A56ACA6000AC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E6F542EA-6319-5D29-9FA1-A56ACA6000AC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B478060E-9564-5D41-B917-4E68E5436782}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B478060E-9564-5D41-B917-4E68E5436782}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B478060E-9564-5D41-B917-4E68E5436782}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B478060E-9564-5D41-B917-4E68E5436782}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E3668775-5A10-5D3B-A33F-53F054D85221}
+	EndGlobalSection
+EndGlobal

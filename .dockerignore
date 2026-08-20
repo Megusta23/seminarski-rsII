@@ -1,0 +1,11 @@
+.git
+.gitignore
+.vs
+.idea
+.vscode
+**/bin
+**/obj
+**/build
+**/.dart_tool
+.env
+*.md

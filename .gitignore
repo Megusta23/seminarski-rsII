@@ -1,0 +1,65 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+
+# .NET
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+TestResults/
+coverage/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+**/build/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/android/.gradle/
+**/android/local.properties
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and local storage
+*.log
+uploads/
+
+# .NET
+**/bin/
+**/obj/
+
+# Flutter
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
+# macOS and IDE
+.DS_Store
+.idea/
+.vscode/
+**/Pods/
+**/.symlinks/
+**/DerivedData/
+
+# Local backups
+*.backup

@@ -1,0 +1,105 @@
+name: ${COMPOSE_PROJECT_NAME:-ladder-social}
+
+services:
+  database:
+    platform: linux/amd64
+    image: mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04
+    container_name: ladder-social-database
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SQL_SA_PASSWORD}
+    ports:
+      - "${SQL_HOST_PORT:-14333}:1433"
+    volumes:
+      - ladder-social-sql-data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S 127.0.0.1 -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 25s
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:4.1.0-management
+    container_name: ladder-social-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - ladder-social-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: src/LadderSocial.Api/Dockerfile
+    container_name: ladder-social-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      DATABASE_CONNECTION_STRING: Server=database,1433;Database=${DATABASE_NAME:-220087};User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True
+      DATABASE_BOOTSTRAP_MODE: ${DATABASE_BOOTSTRAP_MODE:-migrate}
+      JWT_KEY: ${JWT_KEY}
+      JWT_ISSUER: ${JWT_ISSUER}
+      JWT_AUDIENCE: ${JWT_AUDIENCE}
+      JWT_ACCESS_TOKEN_MINUTES: ${JWT_ACCESS_TOKEN_MINUTES:-30}
+      JWT_REFRESH_TOKEN_DAYS: ${JWT_REFRESH_TOKEN_DAYS:-14}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      SEED_MOBILE_EMAIL: ${SEED_MOBILE_EMAIL}
+      SEED_MOBILE_PASSWORD: ${SEED_MOBILE_PASSWORD}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${API_HOST_PORT:-5000}:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/LadderSocial.Worker/Dockerfile
+    container_name: ladder-social-worker
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      DATABASE_CONNECTION_STRING: Server=database,1433;Database=${DATABASE_NAME:-220087};User Id=sa;Password=${SQL_SA_PASSWORD};Encrypt=False;TrustServerCertificate=True
+      DATABASE_BOOTSTRAP_MODE: ${DATABASE_BOOTSTRAP_MODE:-migrate}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-30}
+    depends_on:
+      database:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ladder-social-sql-data:
+  ladder-social-rabbitmq-data:

@@ -28,7 +28,9 @@ public sealed class TaskCompletionConfiguration : IEntityTypeConfiguration<TaskC
         builder.ToTable("TaskCompletions");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Note).HasMaxLength(1000);
+        builder.Property(x => x.OccurrenceDate).HasColumnType("date");
         builder.HasIndex(x => new { x.UserId, x.CompletedAtUtc });
+        builder.HasIndex(x => new { x.TaskItemId, x.UserId, x.OccurrenceDate }).IsUnique();
 
         builder.HasOne<TaskItem>().WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
@@ -43,6 +45,7 @@ public sealed class TaskProofMediaConfiguration : IEntityTypeConfiguration<TaskP
         builder.HasKey(x => x.Id);
         builder.Property(x => x.StorageKey).HasMaxLength(500).IsRequired();
         builder.Property(x => x.MimeType).HasMaxLength(100).IsRequired();
+        builder.HasIndex(x => x.TaskCompletionId).IsUnique();
         builder.HasOne<TaskCompletion>().WithMany().HasForeignKey(x => x.TaskCompletionId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.Restrict);
     }

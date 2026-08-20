@@ -1,0 +1,164 @@
+@baseUrl = http://localhost:5001
+@userEmail = mobile@laddersocial.local
+@userPassword = Mobile_Test_220087!
+@adminEmail = admin@laddersocial.local
+@adminPassword = Admin_Test_220087!
+@userToken = paste-user-access-token
+@adminToken = paste-admin-access-token
+@taskId = paste-task-guid
+@friendUserId = paste-friend-user-guid
+@friendRequestId = paste-friend-request-guid
+@conversationId = paste-conversation-guid
+@postId = paste-post-guid
+@notificationId = paste-notification-guid
+@countryId = paste-country-guid
+@userId = paste-user-guid
+
+### Health
+GET {{baseUrl}}/api/health
+
+### User login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{userEmail}}",
+  "password": "{{userPassword}}"
+}
+
+### Administrator login
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+### Reference data
+GET {{baseUrl}}/api/reference-data/task-categories
+Authorization: Bearer {{userToken}}
+
+### Create task
+POST {{baseUrl}}/api/tasks
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "title": "Finish Ladder Social milestone",
+  "description": "Test the task API from VS Code.",
+  "taskCategoryId": "paste-category-guid",
+  "recurrenceTypeId": "paste-recurrence-guid",
+  "dueAtUtc": null,
+  "requiresProofImage": false,
+  "shareWithFriends": true
+}
+
+### Filter my tasks
+GET {{baseUrl}}/api/tasks?search=Ladder&page=1&pageSize=20&sortBy=dueAtUtc&sortDirection=asc
+Authorization: Bearer {{userToken}}
+
+### Task details
+GET {{baseUrl}}/api/tasks/{{taskId}}
+Authorization: Bearer {{userToken}}
+
+### Complete task (REST Client multipart syntax)
+POST {{baseUrl}}/api/tasks/{{taskId}}/complete
+Authorization: Bearer {{userToken}}
+Content-Type: multipart/form-data; boundary=LadderBoundary
+
+--LadderBoundary
+Content-Disposition: form-data; name="occurrenceDate"
+
+2026-08-20
+--LadderBoundary
+Content-Disposition: form-data; name="note"
+
+Completed through requests/application.http
+--LadderBoundary--
+
+### Search users
+GET {{baseUrl}}/api/friends/search?search=&page=1&pageSize=20
+Authorization: Bearer {{userToken}}
+
+### Send friend request
+POST {{baseUrl}}/api/friends/requests/{{friendUserId}}
+Authorization: Bearer {{userToken}}
+
+### Accept friend request
+POST {{baseUrl}}/api/friends/requests/{{friendRequestId}}/accept
+Authorization: Bearer {{userToken}}
+
+### Friend recommendations
+GET {{baseUrl}}/api/friends/recommendations
+Authorization: Bearer {{userToken}}
+
+### Feed
+GET {{baseUrl}}/api/feed?page=1&pageSize=20
+Authorization: Bearer {{userToken}}
+
+### Mark feed post viewed
+POST {{baseUrl}}/api/feed/{{postId}}/view
+Authorization: Bearer {{userToken}}
+
+### Daily leaderboard
+GET {{baseUrl}}/api/leaderboard/daily
+Authorization: Bearer {{userToken}}
+
+### Notifications
+GET {{baseUrl}}/api/notifications?isRead=false&page=1&pageSize=20
+Authorization: Bearer {{userToken}}
+
+### Mark notification read
+POST {{baseUrl}}/api/notifications/{{notificationId}}/read
+Authorization: Bearer {{userToken}}
+
+### Start direct conversation
+POST {{baseUrl}}/api/conversations/direct/{{friendUserId}}
+Authorization: Bearer {{userToken}}
+
+### Send text message
+POST {{baseUrl}}/api/conversations/{{conversationId}}/messages
+Authorization: Bearer {{userToken}}
+Content-Type: multipart/form-data; boundary=MessageBoundary
+
+--MessageBoundary
+Content-Disposition: form-data; name="content"
+
+Hello from the REST Client request collection.
+--MessageBoundary--
+
+### Conversation messages
+GET {{baseUrl}}/api/conversations/{{conversationId}}/messages?page=1&pageSize=20
+Authorization: Bearer {{userToken}}
+
+### Admin dashboard
+GET {{baseUrl}}/api/admin/dashboard
+Authorization: Bearer {{adminToken}}
+
+### Admin countries
+GET {{baseUrl}}/api/admin/reference-data/countries?page=1&pageSize=20
+Authorization: Bearer {{adminToken}}
+
+### Create country
+POST {{baseUrl}}/api/admin/reference-data/countries
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Test Country",
+  "isoCode": "TC",
+  "sortOrder": 100
+}
+
+### Admin users
+GET {{baseUrl}}/api/admin/users?page=1&pageSize=20
+Authorization: Bearer {{adminToken}}
+
+### User report
+GET {{baseUrl}}/api/admin/reports/users/{{userId}}
+Authorization: Bearer {{adminToken}}
+
+### Activity report
+GET {{baseUrl}}/api/admin/reports/activity?fromDate=2026-08-01&toDate=2026-08-31
+Authorization: Bearer {{adminToken}}

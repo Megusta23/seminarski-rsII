@@ -12,7 +12,8 @@ public sealed class ProfileService(
     ApplicationDbContext dbContext,
     UserManager<AppUser> userManager,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider) : IProfileService
+    IDateTimeProvider dateTimeProvider,
+    IFileStorageService fileStorageService) : IProfileService
 {
     public async Task<CurrentProfileResponse> GetCurrentAsync(
         CancellationToken cancellationToken)
@@ -51,7 +52,7 @@ public sealed class ProfileService(
             profile.FirstName,
             profile.LastName,
             profile.Bio,
-            profile.AvatarStorageKey,
+            profile.AvatarStorageKey is null ? null : $"/api/media/avatars/{user.Id}",
             profile.CityId,
             profile.CityName,
             profile.DateOfBirth,
@@ -114,6 +115,56 @@ public sealed class ProfileService(
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
+
+        return await GetCurrentAsync(cancellationToken);
+    }
+
+    public async Task<CurrentProfileResponse> UpdateAvatarAsync(
+        UploadPayload upload,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var stored = await fileStorageService.SaveImageAsync(
+            $"avatars/{userId:N}",
+            upload,
+            cancellationToken);
+        var profile = await dbContext.UserProfiles
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException("The current user profile was not found.");
+        var previousStorageKey = profile.AvatarStorageKey;
+        profile.AvatarStorageKey = stored.StorageKey;
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch
+        {
+            await fileStorageService.DeleteIfExistsAsync(stored.StorageKey, cancellationToken);
+            throw;
+        }
+
+        if (!string.IsNullOrWhiteSpace(previousStorageKey))
+        {
+            await fileStorageService.DeleteIfExistsAsync(previousStorageKey, cancellationToken);
+        }
+
+        return await GetCurrentAsync(cancellationToken);
+    }
+
+    public async Task<CurrentProfileResponse> RemoveAvatarAsync(
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var profile = await dbContext.UserProfiles
+            .SingleOrDefaultAsync(item => item.UserId == userId, cancellationToken)
+            ?? throw new NotFoundException("The current user profile was not found.");
+        var storageKey = profile.AvatarStorageKey;
+        profile.AvatarStorageKey = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(storageKey))
+        {
+            await fileStorageService.DeleteIfExistsAsync(storageKey, cancellationToken);
+        }
 
         return await GetCurrentAsync(cancellationToken);
     }

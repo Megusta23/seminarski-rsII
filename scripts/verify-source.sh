@@ -11,6 +11,9 @@ for command_name in dotnet flutter; do
   fi
 done
 
+echo "==> Running offline static source checks"
+python3 scripts/static-source-check.py
+
 echo "==> Checking shell-script syntax"
 for script_file in scripts/*.sh; do
   bash -n "${script_file}"

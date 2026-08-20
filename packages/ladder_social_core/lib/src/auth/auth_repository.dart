@@ -2,6 +2,7 @@ import 'package:ladder_social_core/src/auth/auth_api_service.dart';
 import 'package:ladder_social_core/src/auth/auth_models.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
 import 'package:ladder_social_core/src/storage/token_store.dart';
+import 'package:ladder_social_core/src/tasks/task_models.dart';
 
 final class AuthRepository {
   const AuthRepository({
@@ -136,6 +137,11 @@ final class AuthRepository {
       dateOfBirth: dateOfBirth,
     );
   }
+
+  Future<CurrentProfile> updateAvatar(ImageUpload image) =>
+      _apiService.updateAvatar(image);
+
+  Future<CurrentProfile> removeAvatar() => _apiService.removeAvatar();
 
   Future<AdminAccessResult> checkAdminAccess() =>
       _apiService.checkAdminAccess();

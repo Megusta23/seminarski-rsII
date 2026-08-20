@@ -48,6 +48,39 @@ final class MobileAuthController extends StateNotifier<MobileAuthState> {
     }
   }
 
+  Future<bool> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    final AuthSession? currentSession = state.session;
+    if (currentSession == null) {
+      state = const MobileAuthState.unauthenticated(
+        errorMessage: 'Authentication is required to change your password.',
+      );
+      return false;
+    }
+
+    state = MobileAuthState.busy(session: currentSession);
+    try {
+      await _authRepository.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      state = const MobileAuthState.unauthenticated();
+      return true;
+    } catch (error) {
+      final ApiException exception = ApiException.from(error);
+      state = MobileAuthState.authenticated(
+        currentSession,
+        errorMessage: exception.message,
+        validationErrors: exception.validationErrors,
+      );
+      return false;
+    }
+  }
+
   Future<void> logout() async {
     final AuthSession? currentSession = state.session;
     state = MobileAuthState.busy(session: currentSession);

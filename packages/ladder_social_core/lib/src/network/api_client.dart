@@ -101,7 +101,9 @@ final class ApiClient {
   bool _isPublicAuthRequest(String path) {
     return path.endsWith('/api/auth/login') ||
         path.endsWith('/api/auth/register') ||
-        path.endsWith('/api/auth/refresh');
+        path.endsWith('/api/auth/refresh') ||
+        path.endsWith('/api/auth/forgot-password') ||
+        path.endsWith('/api/auth/reset-password');
   }
 
   bool _isLogoutRequest(String path) => path.endsWith('/api/auth/logout');

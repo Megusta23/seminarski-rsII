@@ -58,7 +58,7 @@ public sealed class ProfileService(
             roles);
     }
 
-    public async Task UpdateCurrentAsync(
+    public async Task<CurrentProfileResponse> UpdateCurrentAsync(
         UpdateProfileRequest request,
         CancellationToken cancellationToken)
     {
@@ -114,6 +114,8 @@ public sealed class ProfileService(
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
+
+        return await GetCurrentAsync(cancellationToken);
     }
 
     private Guid RequireCurrentUserId() =>

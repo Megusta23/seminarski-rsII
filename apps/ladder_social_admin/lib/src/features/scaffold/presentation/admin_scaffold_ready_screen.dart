@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ladder_social_admin/src/core/providers/core_providers.dart';
 import 'package:ladder_social_admin/src/features/auth/application/admin_auth_state.dart';
+import 'package:ladder_social_admin/src/features/auth/presentation/admin_change_password_screen.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 
 final class AdminScaffoldReadyScreen extends ConsumerWidget {
@@ -30,6 +31,18 @@ final class AdminScaffoldReadyScreen extends ConsumerWidget {
               ref.invalidate(adminAccessProvider);
             },
             icon: const Icon(Icons.refresh),
+          ),
+          IconButton(
+            tooltip: 'Change password',
+            onPressed: authState.isBusy
+                ? null
+                : () => Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (BuildContext context) =>
+                            const AdminChangePasswordScreen(),
+                      ),
+                    ),
+            icon: const Icon(Icons.password_outlined),
           ),
           IconButton(
             tooltip: 'Log out',

@@ -29,6 +29,7 @@ public sealed class ApplicationDbContext(
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<RecommendationLog> RecommendationLogs => Set<RecommendationLog>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<PasswordResetRequest> PasswordResetRequests => Set<PasswordResetRequest>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<TaskCategory> TaskCategories => Set<TaskCategory>();

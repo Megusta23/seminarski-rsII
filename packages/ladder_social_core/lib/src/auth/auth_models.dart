@@ -12,20 +12,20 @@ final class AuthSession {
 
   factory AuthSession.fromJson(Map<String, dynamic> json) {
     return AuthSession(
-      accessToken: _requiredString(json, 'accessToken'),
-      refreshToken: _requiredString(json, 'refreshToken'),
-      accessTokenExpiresAtUtc: _requiredDateTime(
+      accessToken: requiredString(json, 'accessToken'),
+      refreshToken: requiredString(json, 'refreshToken'),
+      accessTokenExpiresAtUtc: requiredDateTime(
         json,
         'accessTokenExpiresAtUtc',
       ),
-      refreshTokenExpiresAtUtc: _requiredDateTime(
+      refreshTokenExpiresAtUtc: requiredDateTime(
         json,
         'refreshTokenExpiresAtUtc',
       ),
-      userId: _requiredString(json, 'userId'),
-      email: _requiredString(json, 'email'),
-      displayName: _requiredString(json, 'displayName'),
-      roles: _stringList(json['roles']),
+      userId: requiredString(json, 'userId'),
+      email: requiredString(json, 'email'),
+      displayName: requiredString(json, 'displayName'),
+      roles: stringList(json['roles']),
     );
   }
 
@@ -60,19 +60,19 @@ final class CurrentProfile {
     final String? rawDateOfBirth = json['dateOfBirth']?.toString();
 
     return CurrentProfile(
-      userId: _requiredString(json, 'userId'),
-      email: _requiredString(json, 'email'),
-      displayName: _requiredString(json, 'displayName'),
-      firstName: _requiredString(json, 'firstName'),
-      lastName: _requiredString(json, 'lastName'),
-      bio: json['bio']?.toString(),
-      avatarUrl: json['avatarUrl']?.toString(),
-      cityId: json['cityId']?.toString(),
-      cityName: json['cityName']?.toString(),
+      userId: requiredString(json, 'userId'),
+      email: requiredString(json, 'email'),
+      displayName: requiredString(json, 'displayName'),
+      firstName: requiredString(json, 'firstName'),
+      lastName: requiredString(json, 'lastName'),
+      bio: nullableString(json['bio']),
+      avatarUrl: nullableString(json['avatarUrl']),
+      cityId: nullableString(json['cityId']),
+      cityName: nullableString(json['cityName']),
       dateOfBirth: rawDateOfBirth == null || rawDateOfBirth.isEmpty
           ? null
           : DateTime.parse(rawDateOfBirth),
-      roles: _stringList(json['roles']),
+      roles: stringList(json['roles']),
     );
   }
 
@@ -97,8 +97,8 @@ final class AdminAccessResult {
 
   factory AdminAccessResult.fromJson(Map<String, dynamic> json) {
     return AdminAccessResult(
-      userId: _requiredString(json, 'userId'),
-      message: _requiredString(json, 'message'),
+      userId: requiredString(json, 'userId'),
+      message: requiredString(json, 'message'),
     );
   }
 
@@ -106,20 +106,29 @@ final class AdminAccessResult {
   final String message;
 }
 
-String _requiredString(Map<String, dynamic> json, String key) {
+final class OperationMessage {
+  const OperationMessage(this.message);
+
+  factory OperationMessage.fromJson(Map<String, dynamic> json) =>
+      OperationMessage(requiredString(json, 'message'));
+
+  final String message;
+}
+
+String requiredString(Map<String, dynamic> json, String key) {
   final String? value = json[key]?.toString();
   if (value == null || value.trim().isEmpty) {
-    throw FormatException('Authentication response is missing "$key".');
+    throw FormatException('Server response is missing "$key".');
   }
   return value;
 }
 
-DateTime _requiredDateTime(Map<String, dynamic> json, String key) {
-  final String value = _requiredString(json, key);
+DateTime requiredDateTime(Map<String, dynamic> json, String key) {
+  final String value = requiredString(json, key);
   return DateTime.parse(value).toUtc();
 }
 
-List<String> _stringList(Object? value) {
+List<String> stringList(Object? value) {
   if (value is! List<dynamic>) {
     return const <String>[];
   }
@@ -127,4 +136,9 @@ List<String> _stringList(Object? value) {
   return List<String>.unmodifiable(
     value.map((dynamic item) => item.toString()),
   );
+}
+
+String? nullableString(Object? value) {
+  final String? text = value?.toString();
+  return text == null || text.trim().isEmpty ? null : text;
 }

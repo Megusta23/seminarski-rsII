@@ -6,3 +6,6 @@ export 'src/errors/api_exception.dart';
 export 'src/models/paged_result.dart';
 export 'src/network/api_client.dart';
 export 'src/storage/token_store.dart';
+export 'src/reference_data/reference_data_api_service.dart';
+export 'src/reference_data/reference_data_models.dart';
+export 'src/reference_data/reference_data_repository.dart';

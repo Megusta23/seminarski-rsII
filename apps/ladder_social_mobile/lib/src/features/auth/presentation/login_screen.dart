@@ -129,7 +129,13 @@ final class _LoginScreenState extends ConsumerState<LoginScreen> {
                         authState.isBusy ? 'Signing in...' : 'Sign in',
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: authState.isBusy
+                          ? null
+                          : () => context.go('/forgot-password'),
+                      child: const Text('Forgot your password?'),
+                    ),
                     TextButton(
                       onPressed: authState.isBusy
                           ? null

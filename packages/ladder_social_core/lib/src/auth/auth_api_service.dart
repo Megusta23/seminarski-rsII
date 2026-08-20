@@ -48,20 +48,90 @@ final class AuthApiService {
   }
 
   Future<void> logout(String refreshToken) async {
+    await _postVoid(
+      '/api/auth/logout',
+      <String, dynamic>{'refreshToken': refreshToken},
+    );
+  }
+
+  Future<OperationMessage> forgotPassword(String email) async {
     try {
-      await _apiClient.dio.post<void>(
-        '/api/auth/logout',
-        data: <String, dynamic>{'refreshToken': refreshToken},
+      final Response<dynamic> response = await _apiClient.dio.post<dynamic>(
+        '/api/auth/forgot-password',
+        data: <String, dynamic>{'email': email},
       );
+      return OperationMessage.fromJson(_responseJson(response));
     } on DioException catch (error) {
       throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
     }
+  }
+
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+    required String confirmPassword,
+  }) {
+    return _postVoid(
+      '/api/auth/reset-password',
+      <String, dynamic>{
+        'email': email,
+        'code': code,
+        'newPassword': newPassword,
+        'confirmPassword': confirmPassword,
+      },
+    );
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) {
+    return _postVoid(
+      '/api/profile/change-password',
+      <String, dynamic>{
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+        'confirmPassword': confirmPassword,
+      },
+    );
   }
 
   Future<CurrentProfile> getCurrentProfile() async {
     try {
       final Response<dynamic> response =
           await _apiClient.dio.get<dynamic>('/api/profile/me');
+      return CurrentProfile.fromJson(_responseJson(response));
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<CurrentProfile> updateCurrentProfile({
+    required String firstName,
+    required String lastName,
+    String? bio,
+    String? cityId,
+    DateTime? dateOfBirth,
+  }) async {
+    try {
+      final Response<dynamic> response = await _apiClient.dio.put<dynamic>(
+        '/api/profile/me',
+        data: <String, dynamic>{
+          'firstName': firstName,
+          'lastName': lastName,
+          'bio': bio,
+          'cityId': cityId,
+          'dateOfBirth': dateOfBirth == null
+              ? null
+              : _formatDateOnly(dateOfBirth),
+        },
+      );
       return CurrentProfile.fromJson(_responseJson(response));
     } on DioException catch (error) {
       throw ApiException.from(error);
@@ -99,11 +169,29 @@ final class AuthApiService {
     }
   }
 
+  Future<void> _postVoid(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      await _apiClient.dio.post<void>(path, data: payload);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
+
   Map<String, dynamic> _responseJson(Response<dynamic> response) {
     final Object? data = response.data;
     if (data is! Map<dynamic, dynamic>) {
       throw const FormatException('The server returned an invalid JSON object.');
     }
     return Map<String, dynamic>.from(data);
+  }
+
+  String _formatDateOnly(DateTime value) {
+    final DateTime local = value.toLocal();
+    final String month = local.month.toString().padLeft(2, '0');
+    final String day = local.day.toString().padLeft(2, '0');
+    return '${local.year}-$month-$day';
   }
 }

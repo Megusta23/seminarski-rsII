@@ -1,4 +1,4 @@
-# Secrets
+# Secrets and signing material
 .env
 .env.*
 !.env.example
@@ -15,51 +15,29 @@ TestResults/
 coverage/
 
 # Flutter / Dart
-.dart_tool/
+**/.dart_tool/
 .packages
 .pub-cache/
 .pub/
-build/
 **/build/
-.flutter-plugins
-.flutter-plugins-dependencies
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
 **/android/.gradle/
 **/android/local.properties
 **/windows/flutter/ephemeral/
 **/linux/flutter/ephemeral/
 **/macos/Flutter/ephemeral/
-
-# Editors
-.idea/
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs and local storage
-*.log
-uploads/
-
-# .NET
-**/bin/
-**/obj/
-
-# Flutter
-**/.dart_tool/
-**/build/
-**/.flutter-plugins
-**/.flutter-plugins-dependencies
-
-# macOS and IDE
-.DS_Store
-.idea/
-.vscode/
 **/Pods/
 **/.symlinks/
 **/DerivedData/
 
-# Local backups
+# Editors
+.idea/
+.vscode/
+
+# OS and local files
+.DS_Store
+Thumbs.db
+*.log
 *.backup
+uploads/

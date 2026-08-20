@@ -11,6 +11,11 @@ for command_name in dotnet flutter; do
   fi
 done
 
+echo "==> Checking shell-script syntax"
+for script_file in scripts/*.sh; do
+  bash -n "${script_file}"
+done
+
 echo "==> Restoring, building and testing .NET solution"
 dotnet restore LadderSocial.sln
 dotnet build LadderSocial.sln --no-restore

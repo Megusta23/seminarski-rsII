@@ -32,6 +32,18 @@ final Provider<AuthRepository> authRepositoryProvider =
   ),
 );
 
+final Provider<ReferenceDataApiService> referenceDataApiServiceProvider =
+    Provider<ReferenceDataApiService>(
+  (Ref ref) => ReferenceDataApiService(ref.watch(apiClientProvider)),
+);
+
+final Provider<ReferenceDataRepository> referenceDataRepositoryProvider =
+    Provider<ReferenceDataRepository>(
+  (Ref ref) => ReferenceDataRepository(
+    ref.watch(referenceDataApiServiceProvider),
+  ),
+);
+
 final StateNotifierProvider<MobileAuthController, MobileAuthState>
     mobileAuthControllerProvider =
     StateNotifierProvider<MobileAuthController, MobileAuthState>(
@@ -51,4 +63,19 @@ final AutoDisposeFutureProvider<CurrentProfile> currentProfileProvider =
   }
 
   return ref.watch(authRepositoryProvider).getCurrentProfile();
+});
+
+final AutoDisposeFutureProvider<List<CityItem>> citiesProvider =
+    FutureProvider.autoDispose<List<CityItem>>((Ref ref) async {
+  final String? userId = ref.watch(
+    mobileAuthControllerProvider.select(
+      (MobileAuthState state) => state.session?.userId,
+    ),
+  );
+
+  if (userId == null) {
+    throw const ApiException(message: 'Authentication is required.');
+  }
+
+  return ref.watch(referenceDataRepositoryProvider).getCities();
 });

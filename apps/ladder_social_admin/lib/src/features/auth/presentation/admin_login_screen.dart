@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ladder_social_admin/src/core/providers/core_providers.dart';
 import 'package:ladder_social_admin/src/features/auth/application/admin_auth_state.dart';
+import 'package:ladder_social_admin/src/features/auth/presentation/admin_forgot_password_screen.dart';
 
 final class AdminLoginScreen extends ConsumerStatefulWidget {
   const AdminLoginScreen({super.key});
@@ -162,7 +163,19 @@ final class _AdminLoginScreenState extends ConsumerState<AdminLoginScreen> {
                                 : 'Sign in as administrator',
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: authState.isBusy
+                              ? null
+                              : () => Navigator.of(context).push<void>(
+                                    MaterialPageRoute<void>(
+                                      builder: (BuildContext context) =>
+                                          const AdminForgotPasswordScreen(),
+                                    ),
+                                  ),
+                          child: const Text('Forgot administrator password?'),
+                        ),
+                        const SizedBox(height: 8),
                         Text(
                           'Use SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD from your local .env file.',
                           style: Theme.of(context).textTheme.bodySmall,

@@ -12,7 +12,6 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((Ref ref) {
     baseUrl: AppConfig.apiBaseUrl,
     tokenStore: ref.watch(tokenStoreProvider),
   );
-
   client.setUnauthorizedHandler(
     () => ref.read(mobileAuthControllerProvider.notifier).handleUnauthorized(),
   );
@@ -44,38 +43,81 @@ final Provider<ReferenceDataRepository> referenceDataRepositoryProvider =
   ),
 );
 
+final Provider<TaskRepository> taskRepositoryProvider = Provider<TaskRepository>(
+  (Ref ref) => TaskRepository(TaskApiService(ref.watch(apiClientProvider))),
+);
+final Provider<FeedRepository> feedRepositoryProvider = Provider<FeedRepository>(
+  (Ref ref) => FeedRepository(ref.watch(apiClientProvider)),
+);
+final Provider<FriendRepository> friendRepositoryProvider =
+    Provider<FriendRepository>(
+  (Ref ref) => FriendRepository(ref.watch(apiClientProvider)),
+);
+final Provider<LeaderboardRepository> leaderboardRepositoryProvider =
+    Provider<LeaderboardRepository>(
+  (Ref ref) => LeaderboardRepository(ref.watch(apiClientProvider)),
+);
+final Provider<NotificationRepository> notificationRepositoryProvider =
+    Provider<NotificationRepository>(
+  (Ref ref) => NotificationRepository(ref.watch(apiClientProvider)),
+);
+final Provider<ChatRepository> chatRepositoryProvider = Provider<ChatRepository>(
+  (Ref ref) => ChatRepository(ref.watch(apiClientProvider)),
+);
+final Provider<MediaRepository> mediaRepositoryProvider =
+    Provider<MediaRepository>(
+  (Ref ref) => MediaRepository(ref.watch(apiClientProvider)),
+);
+
 final StateNotifierProvider<MobileAuthController, MobileAuthState>
     mobileAuthControllerProvider =
     StateNotifierProvider<MobileAuthController, MobileAuthState>(
   (Ref ref) => MobileAuthController(ref.watch(authRepositoryProvider)),
 );
 
-final AutoDisposeFutureProvider<CurrentProfile> currentProfileProvider =
-    FutureProvider.autoDispose<CurrentProfile>((Ref ref) async {
+void _requireAuthenticated(Ref ref) {
   final String? userId = ref.watch(
     mobileAuthControllerProvider.select(
       (MobileAuthState state) => state.session?.userId,
     ),
   );
-
   if (userId == null) {
     throw const ApiException(message: 'Authentication is required.');
   }
+}
 
+final AutoDisposeFutureProvider<CurrentProfile> currentProfileProvider =
+    FutureProvider.autoDispose<CurrentProfile>((Ref ref) async {
+  _requireAuthenticated(ref);
   return ref.watch(authRepositoryProvider).getCurrentProfile();
+});
+
+final AutoDisposeFutureProvider<List<CountryItem>> countriesProvider =
+    FutureProvider.autoDispose<List<CountryItem>>((Ref ref) async {
+  _requireAuthenticated(ref);
+  return ref.watch(referenceDataRepositoryProvider).getCountries();
 });
 
 final AutoDisposeFutureProvider<List<CityItem>> citiesProvider =
     FutureProvider.autoDispose<List<CityItem>>((Ref ref) async {
-  final String? userId = ref.watch(
-    mobileAuthControllerProvider.select(
-      (MobileAuthState state) => state.session?.userId,
-    ),
-  );
-
-  if (userId == null) {
-    throw const ApiException(message: 'Authentication is required.');
-  }
-
+  _requireAuthenticated(ref);
   return ref.watch(referenceDataRepositoryProvider).getCities();
+});
+
+final AutoDisposeFutureProvider<List<ReferenceItem>> taskCategoriesProvider =
+    FutureProvider.autoDispose<List<ReferenceItem>>((Ref ref) async {
+  _requireAuthenticated(ref);
+  return ref.watch(referenceDataRepositoryProvider).getTaskCategories();
+});
+
+final AutoDisposeFutureProvider<List<ReferenceItem>> recurrenceTypesProvider =
+    FutureProvider.autoDispose<List<ReferenceItem>>((Ref ref) async {
+  _requireAuthenticated(ref);
+  return ref.watch(referenceDataRepositoryProvider).getRecurrenceTypes();
+});
+
+final AutoDisposeFutureProvider<NotificationSummary> notificationSummaryProvider =
+    FutureProvider.autoDispose<NotificationSummary>((Ref ref) async {
+  _requireAuthenticated(ref);
+  return ref.watch(notificationRepositoryProvider).getSummary();
 });

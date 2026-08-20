@@ -1,6 +1,15 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Options;
+using LadderSocial.Application.Features.Admin;
 using LadderSocial.Application.Features.Auth;
+using LadderSocial.Application.Features.Chat;
+using LadderSocial.Application.Features.Feed;
+using LadderSocial.Application.Features.Friends;
+using LadderSocial.Application.Features.Leaderboard;
+using LadderSocial.Application.Features.Media;
+using LadderSocial.Application.Features.Notifications;
+using LadderSocial.Application.Features.Reports;
+using LadderSocial.Application.Features.Tasks;
 using LadderSocial.Application.Features.Profiles;
 using LadderSocial.Application.Features.ReferenceData;
 using LadderSocial.Infrastructure.Identity;
@@ -103,6 +112,7 @@ public static class DependencyInjection
         services.TryAddScoped<ICurrentUserService, SystemCurrentUserService>();
         services.AddSingleton<IRabbitMqConnection, RabbitMqConnection>();
         services.AddSingleton<IPasswordResetCodeService, PasswordResetCodeService>();
+        services.TryAddScoped<IRealtimeNotifier, NoOpRealtimeNotifier>();
         return services;
     }
 
@@ -134,6 +144,22 @@ public static class DependencyInjection
             .AddDefaultTokenProviders();
 
         services
+            .AddOptions<FileStorageOptions>()
+            .Configure(options =>
+            {
+                options.RootPath = Require(configuration, "UPLOAD_ROOT");
+                options.MaximumImageBytes = GetPositiveInt(
+                    configuration,
+                    "UPLOAD_MAX_IMAGE_BYTES",
+                    5 * 1024 * 1024);
+            })
+            .Validate(options => options.MaximumImageBytes is >= 1024 and <= 20 * 1024 * 1024,
+                "UPLOAD_MAX_IMAGE_BYTES must be between 1 KB and 20 MB.")
+            .ValidateOnStart();
+
+        services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+
+        services
             .AddOptions<JwtOptions>()
             .Configure(options =>
             {
@@ -162,6 +188,16 @@ public static class DependencyInjection
         services.AddScoped<IPasswordRecoveryService, PasswordRecoveryService>();
         services.AddScoped<IProfileService, ProfileService>();
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
+        services.AddScoped<IAdminReferenceDataService, AdminReferenceDataService>();
+        services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<IMediaService, MediaService>();
+        services.AddScoped<IFeedService, FeedService>();
+        services.AddScoped<IFriendService, FriendService>();
+        services.AddScoped<ILeaderboardService, LeaderboardService>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IChatService, ChatService>();
+        services.AddScoped<IAdminService, AdminService>();
+        services.AddScoped<IReportService, ReportService>();
         services.AddScoped<DatabaseInitializer>();
 
         return services;

@@ -361,7 +361,8 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MessageId");
+                    b.HasIndex("MessageId")
+                        .IsUnique();
 
                     b.HasIndex("OwnerUserId");
 
@@ -463,6 +464,57 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                     b.ToTable("OutboxMessages", (string)null);
                 });
 
+            modelBuilder.Entity("LadderSocial.Domain.Entities.PasswordResetRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("EmailDeliveryAttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("EmailQueuedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("EmailSentAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("InvalidatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastDeliveryError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("UsedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("UserId", "CreatedAtUtc");
+
+                    b.ToTable("PasswordResetRequests", (string)null);
+                });
+
             modelBuilder.Entity("LadderSocial.Domain.Entities.Post", b =>
                 {
                     b.Property<Guid>("Id")
@@ -536,57 +588,6 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("PostViews", (string)null);
-                });
-
-            modelBuilder.Entity("LadderSocial.Domain.Entities.PasswordResetRequest", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("int");
-
-                    b.Property<string>("CodeHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("EmailDeliveryAttemptCount")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("EmailQueuedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("EmailSentAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("ExpiresAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("InvalidatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("LastDeliveryError")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("UsedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExpiresAtUtc");
-
-                    b.HasIndex("UserId", "CreatedAtUtc");
-
-                    b.ToTable("PasswordResetRequests", (string)null);
                 });
 
             modelBuilder.Entity("LadderSocial.Domain.Entities.RecommendationLog", b =>
@@ -737,6 +738,9 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<DateOnly>("OccurrenceDate")
+                        .HasColumnType("date");
+
                     b.Property<int>("ScorePoints")
                         .HasColumnType("int");
 
@@ -754,9 +758,10 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TaskItemId");
-
                     b.HasIndex("UserId", "CompletedAtUtc");
+
+                    b.HasIndex("TaskItemId", "UserId", "OccurrenceDate")
+                        .IsUnique();
 
                     b.ToTable("TaskCompletions", (string)null);
                 });
@@ -870,7 +875,8 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OwnerUserId");
 
-                    b.HasIndex("TaskCompletionId");
+                    b.HasIndex("TaskCompletionId")
+                        .IsUnique();
 
                     b.ToTable("TaskProofMedia", (string)null);
                 });
@@ -1244,6 +1250,15 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("LadderSocial.Domain.Entities.PasswordResetRequest", b =>
+                {
+                    b.HasOne("LadderSocial.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("LadderSocial.Domain.Entities.Post", b =>
                 {
                     b.HasOne("LadderSocial.Infrastructure.Identity.AppUser", null)
@@ -1286,15 +1301,6 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("LadderSocial.Domain.Entities.PasswordResetRequest", b =>
-                {
-                    b.HasOne("LadderSocial.Infrastructure.Identity.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

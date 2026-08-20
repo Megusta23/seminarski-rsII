@@ -21,6 +21,13 @@ final class ApiClient {
   static const String _retryExtraKey = 'ladder_auth_retried';
 
   final Dio dio;
+
+  String get baseUrl => dio.options.baseUrl;
+
+  String absoluteUrl(String path) {
+    final String normalizedPath = path.startsWith('/') ? path : '/$path';
+    return Uri.parse(baseUrl).resolve(normalizedPath).toString();
+  }
   final Dio _refreshDio;
   final TokenStore _tokenStore;
 

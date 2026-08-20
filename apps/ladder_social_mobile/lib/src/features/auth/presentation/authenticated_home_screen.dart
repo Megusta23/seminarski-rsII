@@ -1,206 +1,104 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
-import 'package:ladder_social_mobile/src/features/auth/application/auth_state.dart';
+import 'package:ladder_social_mobile/src/features/chat/presentation/conversations_screen.dart';
+import 'package:ladder_social_mobile/src/features/feed/presentation/feed_screen.dart';
+import 'package:ladder_social_mobile/src/features/friends/presentation/friends_screen.dart';
+import 'package:ladder_social_mobile/src/features/leaderboard/presentation/leaderboard_screen.dart';
+import 'package:ladder_social_mobile/src/features/notifications/presentation/notifications_screen.dart';
+import 'package:ladder_social_mobile/src/features/profile/presentation/profile_screen.dart';
+import 'package:ladder_social_mobile/src/features/tasks/presentation/tasks_screen.dart';
 
-final class AuthenticatedHomeScreen extends ConsumerWidget {
+final class AuthenticatedHomeScreen extends ConsumerStatefulWidget {
   const AuthenticatedHomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final MobileAuthState authState =
-        ref.watch(mobileAuthControllerProvider);
-    final AuthSession session = authState.session!;
-    final AsyncValue<CurrentProfile> profile =
-        ref.watch(currentProfileProvider);
+  ConsumerState<AuthenticatedHomeScreen> createState() =>
+      _AuthenticatedHomeScreenState();
+}
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ladder Social'),
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Reload profile',
-            onPressed: () => ref.invalidate(currentProfileProvider),
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'Log out',
-            onPressed: authState.isBusy
-                ? null
-                : () => ref
-                    .read(mobileAuthControllerProvider.notifier)
-                    .logout(),
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: <Widget>[
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    'Authenticated session',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  _InfoRow(label: 'User', value: session.displayName),
-                  _InfoRow(label: 'Email', value: session.email),
-                  _InfoRow(label: 'Roles', value: session.roles.join(', ')),
-                  _InfoRow(
-                    label: 'Access token expires',
-                    value: session.accessTokenExpiresAtUtc.toLocal().toString(),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          profile.when(
-            data: (CurrentProfile value) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        const Icon(Icons.verified_user_outlined),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Protected profile',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Edit profile',
-                          onPressed: () => context.push('/edit-profile'),
-                          icon: const Icon(Icons.edit_outlined),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _InfoRow(label: 'First name', value: value.firstName),
-                    _InfoRow(label: 'Last name', value: value.lastName),
-                    _InfoRow(
-                      label: 'Biography',
-                      value: value.bio ?? 'Not provided',
-                    ),
-                    _InfoRow(
-                      label: 'City',
-                      value: value.cityName ?? 'Not selected',
-                    ),
-                    _InfoRow(
-                      label: 'Date of birth',
-                      value: value.dateOfBirth == null
-                          ? 'Not provided'
-                          : _date(value.dateOfBirth!),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            loading: () => const Card(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            ),
-            error: (Object error, StackTrace stackTrace) => Card(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Text(ApiException.from(error).message),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Column(
-              children: <Widget>[
-                ListTile(
-                  leading: const Icon(Icons.manage_accounts_outlined),
-                  title: const Text('Edit profile'),
-                  subtitle: const Text(
-                    'Update your name, biography, city and date of birth.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/edit-profile'),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.password_outlined),
-                  title: const Text('Change password'),
-                  subtitle: const Text(
-                    'All active sessions are revoked after a password change.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/change-password'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Card(
-            child: ListTile(
-              leading: Icon(Icons.construction_outlined),
-              title: Text('Next business module'),
-              subtitle: Text(
-                'Task CRUD, completion history and the mobile to-do master-detail flow.',
-              ),
-            ),
-          ),
-          if (authState.isBusy) ...<Widget>[
-            const SizedBox(height: 16),
-            const LinearProgressIndicator(),
-          ],
-          if (authState.errorMessage != null) ...<Widget>[
-            const SizedBox(height: 16),
-            Text(
-              authState.errorMessage!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ],
-        ],
-      ),
+final class _AuthenticatedHomeScreenState
+    extends ConsumerState<AuthenticatedHomeScreen> {
+  int _selectedIndex = 0;
+  Timer? _notificationTimer;
+
+  static const List<String> _titles = <String>[
+    'Feed',
+    'Friends',
+    'Tasks',
+    'Leaderboard',
+    'Profile',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _notificationTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => ref.invalidate(notificationSummaryProvider),
     );
   }
 
-  static String _date(DateTime value) {
-    final String month = value.month.toString().padLeft(2, '0');
-    final String day = value.day.toString().padLeft(2, '0');
-    return '${value.year}-$month-$day';
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    super.dispose();
   }
-}
-
-final class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          SizedBox(
-            width: 130,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
+    final AsyncValue<NotificationSummary> summary =
+        ref.watch(notificationSummaryProvider);
+    final int unread = summary.asData?.value.unreadCount ?? 0;
+    final List<Widget> pages = <Widget>[
+      const FeedScreen(),
+      const FriendsScreen(),
+      const TasksScreen(),
+      const LeaderboardScreen(),
+      const ProfileScreen(),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_titles[_selectedIndex]),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Messages',
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(builder: (_) => const ConversationsScreen()),
+            ),
+            icon: const Icon(Icons.chat_bubble_outline),
+          ),
+          Badge(
+            isLabelVisible: unread > 0,
+            label: Text(unread > 99 ? '99+' : '$unread'),
+            child: IconButton(
+              tooltip: 'Notifications',
+              onPressed: () async {
+                await Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
+                );
+                ref.invalidate(notificationSummaryProvider);
+              },
+              icon: const Icon(Icons.notifications_outlined),
             ),
           ),
-          Expanded(child: SelectableText(value)),
+          const SizedBox(width: 6),
+        ],
+      ),
+      body: IndexedStack(index: _selectedIndex, children: pages),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (int value) => setState(() => _selectedIndex = value),
+        destinations: const <NavigationDestination>[
+          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Feed'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Friends'),
+          NavigationDestination(icon: Icon(Icons.task_alt_outlined), selectedIcon: Icon(Icons.task_alt), label: 'Tasks'),
+          NavigationDestination(icon: Icon(Icons.emoji_events_outlined), selectedIcon: Icon(Icons.emoji_events), label: 'Ranking'),
+          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );

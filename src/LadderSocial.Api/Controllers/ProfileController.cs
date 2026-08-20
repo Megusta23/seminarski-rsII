@@ -1,3 +1,4 @@
+using LadderSocial.Api.Services;
 using LadderSocial.Application.Features.Auth;
 using LadderSocial.Application.Features.Profiles;
 using Microsoft.AspNetCore.Authorization;
@@ -28,6 +29,23 @@ public sealed class ProfileController(
         [FromBody] UpdateProfileRequest request,
         CancellationToken cancellationToken) =>
         Ok(await profileService.UpdateCurrentAsync(request, cancellationToken));
+
+    [HttpPost("me/avatar")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType<CurrentProfileResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CurrentProfileResponse>> UpdateAvatar(
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var upload = await FormFileReader.ReadAsync(file, cancellationToken);
+        return Ok(await profileService.UpdateAvatarAsync(upload, cancellationToken));
+    }
+
+    [HttpDelete("me/avatar")]
+    [ProducesResponseType<CurrentProfileResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<CurrentProfileResponse>> RemoveAvatar(
+        CancellationToken cancellationToken) =>
+        Ok(await profileService.RemoveAvatarAsync(cancellationToken));
 
     [HttpPost("change-password")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

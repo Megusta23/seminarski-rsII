@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using LadderSocial.Application.Abstractions;
 
 namespace LadderSocial.Application.Features.Profiles;
 
@@ -26,4 +27,6 @@ public interface IProfileService
 {
     Task<CurrentProfileResponse> GetCurrentAsync(CancellationToken cancellationToken);
     Task<CurrentProfileResponse> UpdateCurrentAsync(UpdateProfileRequest request, CancellationToken cancellationToken);
+    Task<CurrentProfileResponse> UpdateAvatarAsync(UploadPayload upload, CancellationToken cancellationToken);
+    Task<CurrentProfileResponse> RemoveAvatarAsync(CancellationToken cancellationToken);
 }

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:ladder_social_core/src/auth/auth_models.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
 import 'package:ladder_social_core/src/network/api_client.dart';
+import 'package:ladder_social_core/src/tasks/task_models.dart';
 
 final class AuthApiService {
   const AuthApiService(this._apiClient);
@@ -132,6 +133,40 @@ final class AuthApiService {
               : _formatDateOnly(dateOfBirth),
         },
       );
+      return CurrentProfile.fromJson(_responseJson(response));
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<CurrentProfile> updateAvatar(ImageUpload image) async {
+    try {
+      final FormData form = FormData.fromMap(<String, dynamic>{
+        'file': MultipartFile.fromBytes(
+          image.bytes,
+          filename: image.fileName,
+          contentType: DioMediaType.parse(image.contentType),
+        ),
+      });
+      final Response<dynamic> response = await _apiClient.dio.post<dynamic>(
+        '/api/profile/me/avatar',
+        data: form,
+        options: Options(contentType: 'multipart/form-data'),
+      );
+      return CurrentProfile.fromJson(_responseJson(response));
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<CurrentProfile> removeAvatar() async {
+    try {
+      final Response<dynamic> response =
+          await _apiClient.dio.delete<dynamic>('/api/profile/me/avatar');
       return CurrentProfile.fromJson(_responseJson(response));
     } on DioException catch (error) {
       throw ApiException.from(error);

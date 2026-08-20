@@ -92,6 +92,10 @@ services:
       RABBITMQ_DEAD_LETTER_EXCHANGE: ${RABBITMQ_DEAD_LETTER_EXCHANGE:-ladder-social.dead-letter}
       RABBITMQ_PASSWORD_RESET_DEAD_LETTER_QUEUE: ${RABBITMQ_PASSWORD_RESET_DEAD_LETTER_QUEUE:-ladder-social.password-reset-email.dead}
       RABBITMQ_PASSWORD_RESET_DEAD_LETTER_ROUTING_KEY: ${RABBITMQ_PASSWORD_RESET_DEAD_LETTER_ROUTING_KEY:-auth.password-reset.dead}
+      UPLOAD_ROOT: /app/uploads
+      UPLOAD_MAX_IMAGE_BYTES: ${UPLOAD_MAX_IMAGE_BYTES:-5242880}
+    volumes:
+      - ladder-social-uploads:/app/uploads
     ports:
       - "${API_HOST_PORT:-5000}:8080"
     depends_on:
@@ -147,3 +151,4 @@ volumes:
   ladder-social-sql-data:
   ladder-social-rabbitmq-data:
   ladder-social-smtp4dev-data:
+  ladder-social-uploads:

@@ -1,101 +1,115 @@
 # Ladder Social — IB220087
 
-Ladder Social is the Razvoj softvera II seminar project consisting of:
+Ladder Social is a productivity-oriented social network built as the Razvoj softvera II seminar project. The repository contains an ASP.NET Core REST API, SQL Server, a separate RabbitMQ Worker, Flutter Android and desktop clients, and a shared Flutter package.
 
-- ASP.NET Core REST API
-- SQL Server database named `220087`
-- separate .NET Worker service
-- RabbitMQ messaging
-- smtp4dev local development inbox
-- Flutter Android client
-- Flutter desktop administrative client
-- shared Flutter/Dart client package
+## Implemented scope
 
-The current vertical slices cover secure authentication, password recovery/password change, current-profile editing and read-only reference data. Tasks, friends, feed, leaderboard, notifications, chat, recommendations, analytics and PDF reports remain incremental milestones.
+The current implementation includes:
+
+- registration, login, JWT authorization, refresh-token rotation and server-side logout;
+- forgot/reset/change password, RabbitMQ delivery and smtp4dev testing;
+- profile editing and protected avatar upload;
+- countries, cities, task categories and recurrence types;
+- administrator CRUD for all reference data, with search, status filters and pagination;
+- task CRUD, ownership checks, filtering, sorting, pagination and master-detail mobile UI;
+- one-time and recurring task completions with duplicate-occurrence protection;
+- optional/required proof images validated by MIME type, magic bytes and file-size limits;
+- friends, friend requests, friend profiles and graph-based friend recommendations;
+- friends-only feed and viewed-state tracking;
+- daily and weekly leaderboards calculated from server-side completion data;
+- read/unread system notifications with automatic polling and SignalR server support;
+- direct text/image chat with membership authorization and automatic polling;
+- administrator dashboard, user management and post moderation;
+- two backend-generated PDF reports.
 
 ## Repository structure
 
 ```text
 apps/
   ladder_social_mobile/       Flutter Android client
-  ladder_social_admin/        Flutter admin client; macOS during development, Windows for submission
+  ladder_social_admin/        Flutter admin client; macOS in development, Windows for submission
 packages/
-  ladder_social_core/         Shared API, secure storage, auth and reference-data code
+  ladder_social_core/         Shared typed API, secure storage and feature repositories
 src/
   LadderSocial.Domain/        Entities, enums and domain primitives
-  LadderSocial.Application/   Contracts, DTOs, exceptions and feature boundaries
-  LadderSocial.Infrastructure/EF Core, Identity, messaging and service implementations
-  LadderSocial.Api/           HTTP pipeline and controllers
-  LadderSocial.Worker/        Separate RabbitMQ consumer and SMTP delivery process
-requests/
-  auth.http
-  password-recovery-and-profile.http
-tests/
-  LadderSocial.UnitTests/
-docs/
-scripts/
+  LadderSocial.Application/   DTOs, feature contracts, exceptions and abstractions
+  LadderSocial.Infrastructure/EF Core, Identity, files, messaging and service implementations
+  LadderSocial.Api/           Controllers, middleware and SignalR hubs
+  LadderSocial.Worker/        Separate RabbitMQ consumer and SMTP process
+requests/                     REST Client examples
+scripts/                      Build, verification and end-to-end smoke tests
+tests/                        .NET unit tests
+docs/                         Architecture, security, testing and implementation notes
 ```
 
 ## Prerequisites
 
 - .NET 10 SDK
-- Flutter stable
-- Android SDK and an Android emulator or physical Android device
-- Xcode for macOS desktop development
-- Docker Desktop with Docker Compose
-- Visual Studio Code or another editor
+- current stable Flutter
+- Docker Desktop and Docker Compose
+- Android SDK plus an emulator or physical Android device
+- Xcode for macOS development
+- Windows environment for the final Windows desktop release build
 
-## First start or upgrade from the authentication branch
+## Configuration
 
-Create `.env` when starting from a clean clone:
+Create the local configuration once:
 
 ```bash
 cp .env.example .env
-```
-
-If you already have a working `.env`, keep it. Generate the new password-recovery secrets and local SMTP defaults:
-
-```bash
 ./scripts/prepare-password-reset-env.sh
 ```
 
-Never commit `.env`.
+Never commit `.env`. The application reads secrets and infrastructure values from environment variables, including JWT, SQL Server, RabbitMQ, SMTP and password-reset keys.
 
-Start the complete backend stack:
+Important local defaults:
+
+```text
+API:                  http://localhost:5001
+API health:           http://localhost:5001/api/health
+OpenAPI (development):http://localhost:5001/openapi/v1.json
+smtp4dev:             http://localhost:5002
+RabbitMQ management: http://localhost:15672
+SQL Server:           localhost:14333
+```
+
+## Start the backend
 
 ```bash
 docker compose --env-file .env up --build -d
 docker compose --env-file .env ps
+curl http://localhost:5001/api/health
 ```
 
-Default local addresses:
+Follow logs when needed:
 
-```text
-API health:           http://localhost:5001/api/health
-OpenAPI document:     http://localhost:5001/openapi/v1.json
-smtp4dev inbox:       http://localhost:5002
-RabbitMQ management:  http://localhost:15672
-SQL Server:           localhost:14333
+```bash
+docker compose --env-file .env logs -f api worker
+```
+
+Stop without deleting data:
+
+```bash
+docker compose --env-file .env down
+```
+
+Delete all local Docker data only when an intentional clean reset is required:
+
+```bash
+docker compose --env-file .env down -v
 ```
 
 ## Database migrations
 
-The repository uses:
-
-```env
-DATABASE_BOOTSTRAP_MODE=migrate
-```
-
-Current migrations:
+The project uses EF Core migrations and `DATABASE_BOOTSTRAP_MODE=migrate`. Current schema milestones are:
 
 ```text
 InitialCreate
 AddPasswordResetRequests
+AddTaskOccurrenceDate
 ```
 
-The API applies pending migrations during startup. A normal update does not require deleting Docker volumes.
-
-After changing EF models, restore the repository-local EF tool and create a descriptive migration from the repository root:
+The API applies pending migrations during startup. To create a new migration:
 
 ```bash
 dotnet tool restore
@@ -111,93 +125,18 @@ dotnet tool run dotnet-ef migrations add DescriptiveMigrationName \
   --output-dir Persistence/Migrations
 ```
 
-Review every generated migration before applying it. Do not create empty migrations.
+Review every generated migration before applying it. Do not return to `EnsureCreated`.
 
-## Implemented authentication and profile routes
+## Run the mobile client
 
-```text
-POST /api/auth/register
-POST /api/auth/login
-POST /api/auth/refresh
-POST /api/auth/forgot-password
-POST /api/auth/reset-password
-POST /api/auth/logout
-GET  /api/profile/me
-PUT  /api/profile/me
-POST /api/profile/change-password
-GET  /api/admin/access
-```
-
-Password recovery flow:
-
-```text
-API stores a hashed, expiring reset request
-→ API publishes an encrypted-code event to RabbitMQ
-→ separate Worker consumes the event
-→ Worker sends a real SMTP message
-→ smtp4dev displays the local development email
-```
-
-Reference-data routes currently available to authenticated clients:
-
-```text
-GET /api/reference-data/countries
-GET /api/reference-data/cities
-GET /api/reference-data/task-categories
-GET /api/reference-data/recurrence-types
-```
-
-## Automated tests
-
-Run the existing authentication regression suite:
-
-```bash
-./scripts/test-auth.sh
-```
-
-Run password reset, RabbitMQ/Worker email delivery and password-change verification:
-
-```bash
-./scripts/test-password-recovery.sh
-```
-
-Run profile and reference-data verification:
-
-```bash
-./scripts/test-profile.sh
-```
-
-Run all available .NET and Flutter checks:
-
-```bash
-./scripts/verify-source.sh
-```
-
-Detailed instructions are in:
-
-- [`docs/authentication.md`](docs/authentication.md)
-- [`docs/password-recovery-and-profile.md`](docs/password-recovery-and-profile.md)
-- [`docs/changed-files-password-reset-profile.md`](docs/changed-files-password-reset-profile.md)
-
-Manual REST Client requests are in `requests/`.
-
-Seed credentials are read from `.env`:
-
-```text
-SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD
-SEED_MOBILE_EMAIL / SEED_MOBILE_PASSWORD
-```
-
-## Run the Flutter mobile application
-
-Start the Pixel emulator and confirm it appears as a device:
+Start the configured emulator:
 
 ```bash
 flutter emulators --launch Pixel_8
 flutter devices
 ```
 
-Then:
+Run on the Android emulator:
 
 ```bash
 cd apps/ladder_social_mobile
@@ -206,17 +145,16 @@ flutter run -d emulator-5554 \
   --dart-define=API_BASE_URL=http://10.0.2.2:5001
 ```
 
-For a physical phone connected through `adb reverse`:
+For a USB-connected physical Android device:
 
 ```bash
 adb -d reverse tcp:5001 tcp:5001
-flutter run \
-  --dart-define=API_BASE_URL=http://127.0.0.1:5001
+flutter run --dart-define=API_BASE_URL=http://127.0.0.1:5001
 ```
 
-The mobile app currently supports login, registration, secure session restoration, forgot/reset/change password, protected-profile loading and profile editing.
+## Run the desktop administrator client
 
-## Run the Flutter admin application on macOS
+On macOS during development:
 
 ```bash
 cd apps/ladder_social_admin
@@ -225,37 +163,76 @@ flutter run -d macos \
   --dart-define=API_BASE_URL=http://localhost:5001
 ```
 
-The desktop app supports administrator login, role enforcement, password recovery, password change, protected profile checks and logout. The final Windows build must later be produced and tested on Windows.
+The final Windows build must be produced and tested on Windows:
 
-## Direct build and test commands
+```powershell
+flutter clean
+flutter build windows --release --dart-define=API_BASE_URL=http://localhost:5001
+```
+
+## Automated verification
+
+Run regression suites in this order:
 
 ```bash
-dotnet restore LadderSocial.sln
-dotnet build LadderSocial.sln
-dotnet test LadderSocial.sln
-
-cd packages/ladder_social_core
-flutter analyze
-flutter test
-
-cd ../../apps/ladder_social_mobile
-flutter analyze
-flutter test
-
-cd ../ladder_social_admin
-flutter analyze
-flutter test
+./scripts/test-auth.sh
+./scripts/test-password-recovery.sh
+./scripts/test-profile.sh
+./scripts/test-reference-data.sh
+./scripts/test-tasks.sh
+./scripts/test-social-features.sh
+./scripts/test-admin-reports.sh
+./scripts/verify-source.sh
 ```
 
-## Next development milestone
+The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, feed visibility, recommendations, chat membership, moderation and PDF output.
 
-After this branch is merged and tested, implement the first complete task-management vertical slice:
+`verify-source.sh` runs:
+
+- offline source/import/anti-pattern checks;
+- shell syntax checks;
+- `dotnet restore`, build and tests;
+- `flutter pub get`, analyze and tests for all Flutter packages;
+- Docker Compose configuration validation when Docker and `.env` are available.
+
+## Major API groups
 
 ```text
-admin reference-data CRUD
-→ task CRUD with filtering and pagination
-→ task master-detail UI
-→ task completion history
-→ optional proof image
-→ friends-only feed post
+/api/auth/*
+/api/profile/*
+/api/reference-data/*
+/api/admin/reference-data/*
+/api/tasks/*
+/api/media/*
+/api/friends/*
+/api/feed/*
+/api/leaderboard/*
+/api/notifications/*
+/api/conversations/*
+/api/admin/*
+/api/admin/reports/*
+/hubs/notifications
+/hubs/chat
 ```
+
+All private routes require a validated JWT. Admin routes require the `Admin` role. Current-user operations derive the user ID from the JWT rather than accepting it from the client.
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/authentication.md`](docs/authentication.md)
+- [`docs/password-recovery-and-profile.md`](docs/password-recovery-and-profile.md)
+- [`docs/application-testing-guide.md`](docs/application-testing-guide.md)
+- [`docs/implementation-status.md`](docs/implementation-status.md)
+- [`recommender-dokumentacija.md`](recommender-dokumentacija.md)
+
+## Seed credentials
+
+Seed credentials are configured in `.env`:
+
+```text
+SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD
+SEED_MOBILE_EMAIL / SEED_MOBILE_PASSWORD
+```
+
+Do not place real passwords in README files, Git history or GitHub Releases.

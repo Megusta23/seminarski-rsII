@@ -12,24 +12,34 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((Ref ref) {
     baseUrl: AppConfig.apiBaseUrl,
     tokenStore: ref.watch(tokenStoreProvider),
   );
-
   client.setUnauthorizedHandler(
     () => ref.read(adminAuthControllerProvider.notifier).handleUnauthorized(),
   );
   return client;
 });
 
-final Provider<AuthApiService> authApiServiceProvider =
-    Provider<AuthApiService>(
+final Provider<AuthApiService> authApiServiceProvider = Provider<AuthApiService>(
   (Ref ref) => AuthApiService(ref.watch(apiClientProvider)),
 );
-
-final Provider<AuthRepository> authRepositoryProvider =
-    Provider<AuthRepository>(
+final Provider<AuthRepository> authRepositoryProvider = Provider<AuthRepository>(
   (Ref ref) => AuthRepository(
     apiService: ref.watch(authApiServiceProvider),
     tokenStore: ref.watch(tokenStoreProvider),
   ),
+);
+final Provider<ReferenceDataApiService> referenceDataApiServiceProvider =
+    Provider<ReferenceDataApiService>(
+  (Ref ref) => ReferenceDataApiService(ref.watch(apiClientProvider)),
+);
+final Provider<ReferenceDataRepository> referenceDataRepositoryProvider =
+    Provider<ReferenceDataRepository>(
+  (Ref ref) => ReferenceDataRepository(ref.watch(referenceDataApiServiceProvider)),
+);
+final Provider<AdminRepository> adminRepositoryProvider = Provider<AdminRepository>(
+  (Ref ref) => AdminRepository(ref.watch(apiClientProvider)),
+);
+final Provider<MediaRepository> mediaRepositoryProvider = Provider<MediaRepository>(
+  (Ref ref) => MediaRepository(ref.watch(apiClientProvider)),
 );
 
 final StateNotifierProvider<AdminAuthController, AdminAuthState>
@@ -38,32 +48,31 @@ final StateNotifierProvider<AdminAuthController, AdminAuthState>
   (Ref ref) => AdminAuthController(ref.watch(authRepositoryProvider)),
 );
 
-final AutoDisposeFutureProvider<CurrentProfile> adminProfileProvider =
-    FutureProvider.autoDispose<CurrentProfile>((Ref ref) async {
+void _requireAdmin(Ref ref) {
   final String? userId = ref.watch(
     adminAuthControllerProvider.select(
       (AdminAuthState state) => state.session?.userId,
     ),
   );
-
   if (userId == null) {
     throw const ApiException(message: 'Administrator authentication is required.');
   }
+}
 
+final AutoDisposeFutureProvider<CurrentProfile> adminProfileProvider =
+    FutureProvider.autoDispose<CurrentProfile>((Ref ref) async {
+  _requireAdmin(ref);
   return ref.watch(authRepositoryProvider).getCurrentProfile();
 });
 
 final AutoDisposeFutureProvider<AdminAccessResult> adminAccessProvider =
     FutureProvider.autoDispose<AdminAccessResult>((Ref ref) async {
-  final String? userId = ref.watch(
-    adminAuthControllerProvider.select(
-      (AdminAuthState state) => state.session?.userId,
-    ),
-  );
-
-  if (userId == null) {
-    throw const ApiException(message: 'Administrator authentication is required.');
-  }
-
+  _requireAdmin(ref);
   return ref.watch(authRepositoryProvider).checkAdminAccess();
+});
+
+final AutoDisposeFutureProvider<List<CountryItem>> adminCountryOptionsProvider =
+    FutureProvider.autoDispose<List<CountryItem>>((Ref ref) async {
+  _requireAdmin(ref);
+  return ref.watch(referenceDataRepositoryProvider).getCountries();
 });

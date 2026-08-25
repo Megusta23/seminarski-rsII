@@ -1,6 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:ladder_social_core/src/auth/auth_models.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
+import 'package:ladder_social_core/src/friends/friend_models.dart';
+import 'package:ladder_social_core/src/models/paged_json.dart';
+import 'package:ladder_social_core/src/models/paged_result.dart';
 import 'package:ladder_social_core/src/network/api_client.dart';
 import 'package:ladder_social_core/src/tasks/task_models.dart';
 
@@ -172,6 +175,48 @@ final class AuthApiService {
       throw ApiException.from(error);
     } on FormatException catch (error) {
       throw ApiException(message: error.message);
+    }
+  }
+
+  Future<PagedResult<ProfileHighlightCandidate>> getHighlightCandidates({
+    String? search,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    try {
+      final Response<dynamic> response = await _apiClient.dio.get<dynamic>(
+        '/api/profile/me/highlight-candidates',
+        queryParameters: <String, dynamic>{
+          if (search != null && search.trim().isNotEmpty)
+            'search': search.trim(),
+          'page': page,
+          'pageSize': pageSize,
+        },
+      );
+      return parsePagedResult(
+        response.data,
+        ProfileHighlightCandidate.fromJson,
+      );
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<void> highlightPost(String postId) async {
+    try {
+      await _apiClient.dio.post<void>('/api/profile/me/highlights/$postId');
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    }
+  }
+
+  Future<void> removeHighlight(String postId) async {
+    try {
+      await _apiClient.dio.delete<void>('/api/profile/me/highlights/$postId');
+    } on DioException catch (error) {
+      throw ApiException.from(error);
     }
   }
 

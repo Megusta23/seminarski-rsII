@@ -153,6 +153,13 @@ final class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             child: Column(
               children: <Widget>[
                 ListTile(
+                  leading: const Icon(Icons.auto_awesome_outlined),
+                  title: const Text('Manage highlighted posts'),
+                  subtitle: const Text('Feature up to six completed tasks with proof'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/manage-highlights'),
+                ),
+                ListTile(
                   leading: const Icon(Icons.password_outlined),
                   title: const Text('Change password'),
                   trailing: const Icon(Icons.chevron_right),

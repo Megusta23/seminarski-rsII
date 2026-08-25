@@ -7,6 +7,7 @@ import 'package:ladder_social_mobile/src/features/auth/presentation/forgot_passw
 import 'package:ladder_social_mobile/src/features/auth/presentation/register_screen.dart';
 import 'package:ladder_social_mobile/src/features/auth/presentation/reset_password_screen.dart';
 import 'package:ladder_social_mobile/src/features/profile/presentation/edit_profile_screen.dart';
+import 'package:ladder_social_mobile/src/features/profile/presentation/manage_highlights_screen.dart';
 
 final GoRouter _router = GoRouter(
   routes: <RouteBase>[
@@ -41,6 +42,11 @@ final GoRouter _router = GoRouter(
       path: '/edit-profile',
       builder: (BuildContext context, GoRouterState state) =>
           const EditProfileScreen(),
+    ),
+    GoRoute(
+      path: '/manage-highlights',
+      builder: (BuildContext context, GoRouterState state) =>
+          const ManageHighlightsScreen(),
     ),
   ],
 );

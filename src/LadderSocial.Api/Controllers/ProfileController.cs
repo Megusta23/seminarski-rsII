@@ -1,4 +1,5 @@
 using LadderSocial.Api.Services;
+using LadderSocial.Application.Common.Models;
 using LadderSocial.Application.Features.Auth;
 using LadderSocial.Application.Features.Profiles;
 using Microsoft.AspNetCore.Authorization;
@@ -46,6 +47,36 @@ public sealed class ProfileController(
     public async Task<ActionResult<CurrentProfileResponse>> RemoveAvatar(
         CancellationToken cancellationToken) =>
         Ok(await profileService.RemoveAvatarAsync(cancellationToken));
+
+    [HttpGet("me/highlight-candidates")]
+    [ProducesResponseType<PagedResult<ProfileHighlightCandidateResponse>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<ProfileHighlightCandidateResponse>>> GetHighlightCandidates(
+        [FromQuery] PagedRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await profileService.GetHighlightCandidatesAsync(request, cancellationToken));
+
+    [HttpPost("me/highlights/{postId:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> HighlightPost(
+        Guid postId,
+        CancellationToken cancellationToken)
+    {
+        await profileService.HighlightPostAsync(postId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("me/highlights/{postId:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RemoveHighlight(
+        Guid postId,
+        CancellationToken cancellationToken)
+    {
+        await profileService.RemoveHighlightAsync(postId, cancellationToken);
+        return NoContent();
+    }
 
     [HttpPost("change-password")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

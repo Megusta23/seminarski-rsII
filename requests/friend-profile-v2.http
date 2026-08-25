@@ -1,0 +1,30 @@
+@baseUrl = http://localhost:5001
+@viewerToken = paste-accepted-friend-access-token
+@ownerToken = paste-profile-owner-access-token
+@friendUserId = paste-friend-user-guid
+@highlightPostId = paste-owned-visible-proof-post-guid
+
+### Open the detailed accepted-friend profile
+GET {{baseUrl}}/api/friends/{{friendUserId}}/profile
+Authorization: Bearer {{viewerToken}}
+Accept: application/json
+
+### Search the current user's eligible proof posts
+GET {{baseUrl}}/api/profile/me/highlight-candidates?search=hike&page=1&pageSize=20
+Authorization: Bearer {{ownerToken}}
+Accept: application/json
+
+### Highlight an eligible proof post; repeating this is safe
+POST {{baseUrl}}/api/profile/me/highlights/{{highlightPostId}}
+Authorization: Bearer {{ownerToken}}
+Accept: application/json
+
+### Remove a highlight; repeating this is safe
+DELETE {{baseUrl}}/api/profile/me/highlights/{{highlightPostId}}
+Authorization: Bearer {{ownerToken}}
+Accept: application/json
+
+### Open the existing direct conversation from the profile action
+POST {{baseUrl}}/api/conversations/direct/{{friendUserId}}
+Authorization: Bearer {{viewerToken}}
+Accept: application/json

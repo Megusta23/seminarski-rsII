@@ -312,11 +312,14 @@ public sealed class FriendService(
         CancellationToken cancellationToken)
     {
         var currentUserId = RequireCurrentUserId();
-        if (userId != currentUserId)
+        var isCurrentUser = userId == currentUserId;
+        if (!isCurrentUser)
         {
             var isFriend = await dbContext.Friendships
                 .AsNoTracking()
-                .AnyAsync(item => item.UserId == currentUserId && item.FriendUserId == userId, cancellationToken);
+                .AnyAsync(
+                    item => item.UserId == currentUserId && item.FriendUserId == userId,
+                    cancellationToken);
             if (!isFriend)
             {
                 throw new NotFoundException("The requested friend profile was not found.");
@@ -333,21 +336,129 @@ public sealed class FriendService(
                 {
                     user.Id,
                     user.DisplayName,
+                    user.CreatedAtUtc,
                     userProfile.Bio,
                     HasAvatar = userProfile.AvatarStorageKey != null,
                     CityName = city == null ? null : city.Name
                 })
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("The requested friend profile was not found.");
-        var friendCount = await dbContext.Friendships.CountAsync(item => item.UserId == userId, cancellationToken);
-        var completedTaskCount = await dbContext.TaskCompletions.CountAsync(item => item.UserId == userId, cancellationToken);
+
+        var friendCount = await (
+                from friendship in dbContext.Friendships.AsNoTracking()
+                join friend in dbContext.Users.AsNoTracking()
+                    on friendship.FriendUserId equals friend.Id
+                where friendship.UserId == userId && friend.IsActive
+                select friendship.Id)
+            .CountAsync(cancellationToken);
+        var completedTaskCount = await (
+                from completion in dbContext.TaskCompletions.AsNoTracking()
+                join task in dbContext.Tasks.AsNoTracking() on completion.TaskItemId equals task.Id
+                where completion.UserId == userId
+                select completion.Id)
+            .CountAsync(cancellationToken);
         var habitCount = await (
                 from task in dbContext.Tasks.AsNoTracking()
-                join recurrence in dbContext.RecurrenceTypes.AsNoTracking() on task.RecurrenceTypeId equals recurrence.Id
-                where task.OwnerUserId == userId && recurrence.Code != "none"
+                join recurrence in dbContext.RecurrenceTypes.AsNoTracking()
+                    on task.RecurrenceTypeId equals recurrence.Id
+                where task.OwnerUserId == userId &&
+                    task.Status == TaskItemStatus.Active &&
+                    recurrence.Code != "none"
                 select task.Id)
             .CountAsync(cancellationToken);
+        var visiblePostCount = await (
+                from post in dbContext.Posts.AsNoTracking()
+                join completion in dbContext.TaskCompletions.AsNoTracking()
+                    on post.TaskCompletionId equals completion.Id
+                join task in dbContext.Tasks.AsNoTracking()
+                    on completion.TaskItemId equals task.Id
+                where post.AuthorUserId == userId &&
+                    post.IsVisible &&
+                    task.ShareWithFriends
+                select post.Id)
+            .CountAsync(cancellationToken);
         var streaks = await GetStreaksAsync([userId], cancellationToken);
+
+        var mutualFriendIds = dbContext.Friendships
+            .AsNoTracking()
+            .Where(item => item.UserId == currentUserId)
+            .Select(item => item.FriendUserId)
+            .Intersect(
+                dbContext.Friendships
+                    .AsNoTracking()
+                    .Where(item => item.UserId == userId)
+                    .Select(item => item.FriendUserId));
+        var mutualFriendCount = 0;
+        IReadOnlyCollection<MutualFriendResponse> mutualFriends =
+            Array.Empty<MutualFriendResponse>();
+        if (!isCurrentUser)
+        {
+            var activeMutualFriends =
+                from user in dbContext.Users.AsNoTracking()
+                join userProfile in dbContext.UserProfiles.AsNoTracking() on user.Id equals userProfile.UserId
+                where mutualFriendIds.Contains(user.Id) && user.IsActive
+                select new
+                {
+                    user.Id,
+                    user.DisplayName,
+                    HasAvatar = userProfile.AvatarStorageKey != null
+                };
+            mutualFriendCount = await activeMutualFriends.CountAsync(cancellationToken);
+            var mutualRows = await activeMutualFriends
+                .OrderBy(item => item.DisplayName)
+                .ThenBy(item => item.Id)
+                .Take(6)
+                .ToArrayAsync(cancellationToken);
+            mutualFriends = mutualRows
+                .Select(item => new MutualFriendResponse(
+                    item.Id,
+                    item.DisplayName,
+                    item.HasAvatar ? $"/api/media/avatars/{item.Id}" : null))
+                .ToArray();
+        }
+
+        var highlightedRows = await (
+                from post in dbContext.Posts.AsNoTracking()
+                join completion in dbContext.TaskCompletions.AsNoTracking()
+                    on post.TaskCompletionId equals completion.Id
+                join task in dbContext.Tasks.AsNoTracking()
+                    on completion.TaskItemId equals task.Id
+                join category in dbContext.TaskCategories.AsNoTracking()
+                    on task.TaskCategoryId equals category.Id
+                join proof in dbContext.TaskProofMedia.AsNoTracking()
+                    on completion.Id equals proof.TaskCompletionId
+                where post.AuthorUserId == userId &&
+                    post.IsHighlighted &&
+                    post.IsVisible &&
+                    task.ShareWithFriends
+                orderby post.HighlightedAtUtc descending, completion.CompletedAtUtc descending, post.Id descending
+                select new
+                {
+                    PostId = post.Id,
+                    TaskId = task.Id,
+                    TaskTitle = task.Title,
+                    post.Caption,
+                    CategoryName = category.Name,
+                    CategoryCode = category.Code,
+                    ProofMediaId = proof.Id,
+                    completion.CompletedAtUtc,
+                    HighlightedAtUtc = post.HighlightedAtUtc ?? completion.CompletedAtUtc
+                })
+            .Take(6)
+            .ToArrayAsync(cancellationToken);
+        var highlightedPosts = highlightedRows
+            .Select(item => new HighlightedPostResponse(
+                item.PostId,
+                item.TaskId,
+                item.TaskTitle,
+                item.Caption,
+                item.CategoryName,
+                item.CategoryCode,
+                item.ProofMediaId,
+                $"/api/media/task-proofs/{item.ProofMediaId}",
+                item.CompletedAtUtc,
+                item.HighlightedAtUtc))
+            .ToArray();
 
         return new FriendProfileResponse(
             profile.Id,
@@ -355,10 +466,15 @@ public sealed class FriendService(
             profile.Bio,
             profile.HasAvatar ? $"/api/media/avatars/{profile.Id}" : null,
             profile.CityName,
+            profile.CreatedAtUtc,
+            visiblePostCount,
             friendCount,
             completedTaskCount,
             habitCount,
-            streaks.GetValueOrDefault(userId));
+            streaks.GetValueOrDefault(userId),
+            !isCurrentUser,
+            new MutualFriendsResponse(mutualFriendCount, mutualFriends),
+            highlightedPosts);
     }
 
     public async Task<IReadOnlyCollection<FriendRecommendationResponse>> GetRecommendationsAsync(
@@ -552,10 +668,11 @@ public sealed class FriendService(
             return new Dictionary<Guid, int>();
         }
 
-        var dates = await dbContext.TaskCompletions
-            .AsNoTracking()
-            .Where(item => userIds.Contains(item.UserId))
-            .Select(item => new { item.UserId, item.OccurrenceDate })
+        var dates = await (
+                from completion in dbContext.TaskCompletions.AsNoTracking()
+                join task in dbContext.Tasks.AsNoTracking() on completion.TaskItemId equals task.Id
+                where userIds.Contains(completion.UserId)
+                select new { completion.UserId, completion.OccurrenceDate })
             .ToArrayAsync(cancellationToken);
         var today = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
         return dates

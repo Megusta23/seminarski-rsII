@@ -287,6 +287,12 @@ public sealed class AdminService(
             .SingleOrDefaultAsync(item => item.Id == id, cancellationToken)
             ?? throw new NotFoundException("The requested post was not found.");
         post.IsVisible = isVisible;
+        if (!isVisible)
+        {
+            post.IsHighlighted = false;
+            post.HighlightedAtUtc = null;
+        }
+
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 }

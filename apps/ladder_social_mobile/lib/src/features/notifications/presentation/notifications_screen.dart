@@ -8,22 +8,42 @@ final class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+  ConsumerState<NotificationsScreen> createState() =>
+      _NotificationsScreenState();
 }
 
-final class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+final class _NotificationsScreenState
+    extends ConsumerState<NotificationsScreen> {
   Future<PagedResult<AppNotification>>? _future;
   bool? _isRead;
 
+  bool _didInitialize = false;
+
   @override
-  void initState() {
-    super.initState();
-    _load();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitialize) {
+      return;
+    }
+
+    _didInitialize = true;
+    _future = _requestNotifications();
+    ref.invalidate(notificationSummaryProvider);
+  }
+
+  Future<PagedResult<AppNotification>> _requestNotifications() {
+    return ref
+        .read(notificationRepositoryProvider)
+        .getNotifications(isRead: _isRead);
   }
 
   void _load() {
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
-      _future = ref.read(notificationRepositoryProvider).getNotifications(isRead: _isRead);
+      _future = _requestNotifications();
     });
     ref.invalidate(notificationSummaryProvider);
   }
@@ -36,7 +56,9 @@ final class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         _load();
       }
     } catch (error) {
-      if (mounted) showMessage(context, ApiException.from(error).message, error: true);
+      if (mounted) {
+        showMessage(context, ApiException.from(error).message, error: true);
+      }
     }
   }
 
@@ -46,7 +68,9 @@ final class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
       await ref.read(notificationRepositoryProvider).markRead(notification.id);
       if (mounted) _load();
     } catch (error) {
-      if (mounted) showMessage(context, ApiException.from(error).message, error: true);
+      if (mounted) {
+        showMessage(context, ApiException.from(error).message, error: true);
+      }
     }
   }
 
@@ -92,10 +116,13 @@ final class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
             const SizedBox(height: 12),
             FutureBuilder<PagedResult<AppNotification>>(
               future: _future,
-              builder: (BuildContext context, AsyncSnapshot<PagedResult<AppNotification>> snapshot) {
+              builder: (BuildContext context,
+                  AsyncSnapshot<PagedResult<AppNotification>> snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: Padding(
-                    padding: EdgeInsets.all(32), child: CircularProgressIndicator()));
+                  return const Center(
+                      child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: CircularProgressIndicator()));
                 }
                 if (snapshot.hasError) {
                   return AppErrorView(error: snapshot.error!, onRetry: _load);
@@ -112,12 +139,15 @@ final class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
                       .map((AppNotification item) => Card(
                             color: item.isRead
                                 ? null
-                                : Theme.of(context).colorScheme.primaryContainer,
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .primaryContainer,
                             child: ListTile(
                               onTap: () => _mark(item),
                               leading: Icon(_icon(item.kind)),
                               title: Text(item.title),
-                              subtitle: Text('${item.body}\n${formatDateTime(item.createdAtUtc)}'),
+                              subtitle: Text(
+                                  '${item.body}\n${formatDateTime(item.createdAtUtc)}'),
                               isThreeLine: true,
                               trailing: item.isRead
                                   ? const Icon(Icons.done, size: 18)

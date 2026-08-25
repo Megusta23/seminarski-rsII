@@ -242,7 +242,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Share with friends'),
-                    subtitle: const Text('Create a feed post when the task is completed.'),
+                    subtitle: const Text('Show this task and its completion in accepted friends’ feed.'),
                     value: _shareWithFriends,
                     onChanged: _saving
                         ? null

@@ -1,0 +1,37 @@
+@baseUrl = http://localhost:5001
+@viewerToken = paste-viewer-access-token
+@friendToken = paste-friend-access-token
+@feedDate = 2026-08-23
+@unfinishedTaskId = paste-shared-unfinished-task-guid
+@completedPostId = paste-completed-post-guid
+@proofPostId = paste-proof-post-guid
+
+### Feed page for a date
+GET {{baseUrl}}/api/feed?date={{feedDate}}&page=1&pageSize=20
+Authorization: Bearer {{viewerToken}}
+Accept: application/json
+
+### Search the selected date
+GET {{baseUrl}}/api/feed?date={{feedDate}}&search=work&page=1&pageSize=20
+Authorization: Bearer {{viewerToken}}
+Accept: application/json
+
+### Unfinished feed-item details (activityType 1)
+GET {{baseUrl}}/api/feed/items/{{unfinishedTaskId}}?activityType=1&date={{feedDate}}
+Authorization: Bearer {{viewerToken}}
+Accept: application/json
+
+### Completed post details (activityType 2 or 3)
+GET {{baseUrl}}/api/feed/items/{{completedPostId}}?activityType=2&date={{feedDate}}
+Authorization: Bearer {{viewerToken}}
+Accept: application/json
+
+### Mark a proof as viewed; repeat safely to verify idempotency
+POST {{baseUrl}}/api/feed/{{proofPostId}}/view-proof
+Authorization: Bearer {{viewerToken}}
+Accept: application/json
+
+### Legacy completed-post route retained for compatibility
+GET {{baseUrl}}/api/feed/{{completedPostId}}
+Authorization: Bearer {{viewerToken}}
+Accept: application/json

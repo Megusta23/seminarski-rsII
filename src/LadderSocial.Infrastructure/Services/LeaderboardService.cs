@@ -74,6 +74,7 @@ public sealed class LeaderboardService(
             })
             .OrderByDescending(item => item.Score)
             .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Id)
             .ToArray();
         var entries = ordered
             .Select((item, index) => new LeaderboardEntryResponse(

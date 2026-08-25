@@ -31,7 +31,7 @@ final class _AuthenticatedHomeScreenState
     'Feed',
     'Friends',
     'Tasks',
-    'Leaderboard',
+    'Ranking',
     'Profile',
   ];
 
@@ -60,7 +60,9 @@ final class _AuthenticatedHomeScreenState
       FeedScreen(searchController: _feedSearchController),
       const FriendsScreen(),
       const TasksScreen(),
-      const LeaderboardScreen(),
+      LeaderboardScreen(
+        onOpenCurrentUser: () => setState(() => _selectedIndex = 4),
+      ),
       const ProfileScreen(),
     ];
 

@@ -6,6 +6,7 @@ import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/features/chat/presentation/conversations_screen.dart';
 import 'package:ladder_social_mobile/src/features/feed/presentation/feed_screen.dart';
+import 'package:ladder_social_mobile/src/features/feed/presentation/feed_search_action.dart';
 import 'package:ladder_social_mobile/src/features/friends/presentation/friends_screen.dart';
 import 'package:ladder_social_mobile/src/features/leaderboard/presentation/leaderboard_screen.dart';
 import 'package:ladder_social_mobile/src/features/notifications/presentation/notifications_screen.dart';
@@ -24,6 +25,7 @@ final class _AuthenticatedHomeScreenState
     extends ConsumerState<AuthenticatedHomeScreen> {
   int _selectedIndex = 0;
   Timer? _notificationTimer;
+  final FeedSearchController _feedSearchController = FeedSearchController();
 
   static const List<String> _titles = <String>[
     'Feed',
@@ -45,6 +47,7 @@ final class _AuthenticatedHomeScreenState
   @override
   void dispose() {
     _notificationTimer?.cancel();
+    _feedSearchController.dispose();
     super.dispose();
   }
 
@@ -54,7 +57,7 @@ final class _AuthenticatedHomeScreenState
         ref.watch(notificationSummaryProvider);
     final int unread = summary.asData?.value.unreadCount ?? 0;
     final List<Widget> pages = <Widget>[
-      const FeedScreen(),
+      FeedScreen(searchController: _feedSearchController),
       const FriendsScreen(),
       const TasksScreen(),
       const LeaderboardScreen(),
@@ -72,6 +75,8 @@ final class _AuthenticatedHomeScreenState
             ),
             icon: const Icon(Icons.chat_bubble_outline),
           ),
+          if (_selectedIndex == 0)
+            FeedSearchAction(controller: _feedSearchController),
           Badge(
             isLabelVisible: unread > 0,
             label: Text(unread > 99 ? '99+' : '$unread'),

@@ -133,3 +133,5 @@ The mobile widget tests verify grouped friend cards, the four document states, h
 ## Deliberate exclusions
 
 Feed V2 does not add likes, comments, music, photo editing, chat expansion, leaderboard changes or recommendation changes. Those modules remain independent from this milestone.
+
+- Feed search is opened from the app-bar search icon between Messages and Notifications; the active query is sent to the existing backend feed search and can be cleared from the feed chip.

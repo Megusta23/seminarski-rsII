@@ -7,17 +7,22 @@ import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
 import 'package:ladder_social_mobile/src/features/feed/presentation/feed_widgets.dart';
+import 'package:ladder_social_mobile/src/features/feed/presentation/feed_search_action.dart';
 import 'package:ladder_social_mobile/src/features/friends/presentation/friend_profile_screen.dart';
 
 final class FeedScreen extends ConsumerStatefulWidget {
-  const FeedScreen({super.key});
+  const FeedScreen({
+    required this.searchController,
+    super.key,
+  });
+
+  final FeedSearchController searchController;
 
   @override
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
 final class _FeedScreenState extends ConsumerState<FeedScreen> {
-  final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<FeedPost> _items = <FeedPost>[];
 
@@ -36,16 +41,29 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    widget.searchController.addListener(_onSearchChanged);
     _load(reset: true);
   }
 
   @override
+  void didUpdateWidget(covariant FeedScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.searchController == widget.searchController) return;
+    oldWidget.searchController.removeListener(_onSearchChanged);
+    widget.searchController.addListener(_onSearchChanged);
+  }
+
+  @override
   void dispose() {
-    _searchController.dispose();
+    widget.searchController.removeListener(_onSearchChanged);
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged() {
+    _load(reset: true);
   }
 
   void _onScroll() {
@@ -57,7 +75,7 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
   Future<void> _load({required bool reset}) async {
     final int requestVersion = reset ? ++_requestVersion : _requestVersion;
     final DateTime requestedDate = _selectedDate;
-    final String requestedSearch = _searchController.text;
+    final String requestedSearch = widget.searchController.value;
 
     if (reset) {
       if (mounted) {
@@ -270,30 +288,21 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
               ),
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-            sliver: SliverToBoxAdapter(
-              child: SearchBar(
-                controller: _searchController,
-                hintText: 'Search friends or shared tasks',
-                leading: const Icon(Icons.search),
-                trailing: <Widget>[
-                  if (_searchController.text.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Clear search',
-                      onPressed: () {
-                        _searchController.clear();
-                        setState(() {});
-                        _load(reset: true);
-                      },
-                      icon: const Icon(Icons.clear),
-                    ),
-                ],
-                onChanged: (_) => setState(() {}),
-                onSubmitted: (_) => _load(reset: true),
+          if (widget.searchController.value.isNotEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              sliver: SliverToBoxAdapter(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: InputChip(
+                    avatar: const Icon(Icons.search, size: 18),
+                    label: Text('Search: ${widget.searchController.value}'),
+                    tooltip: 'Clear feed search',
+                    onDeleted: widget.searchController.clear,
+                  ),
+                ),
               ),
             ),
-          ),
           if (_isInitialLoading)
             const SliverPadding(
               padding: EdgeInsets.fromLTRB(16, 4, 16, 96),
@@ -321,9 +330,15 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: EmptyState(
-                  icon: Icons.dynamic_feed_outlined,
-                  title: 'No shared activity for $_dateLabel',
-                  message: 'Your friends have not shared any scheduled or completed tasks for this date.',
+                  icon: widget.searchController.hasQuery
+                      ? Icons.search_off_outlined
+                      : Icons.dynamic_feed_outlined,
+                  title: widget.searchController.hasQuery
+                      ? 'No matching feed activity'
+                      : 'No shared activity for $_dateLabel',
+                  message: widget.searchController.hasQuery
+                      ? 'No friends or shared tasks match "${widget.searchController.value}" for $_dateLabel.'
+                      : 'Your friends have not shared any scheduled or completed tasks for this date.',
                 ),
               )
             else

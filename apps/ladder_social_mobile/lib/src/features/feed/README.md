@@ -19,3 +19,5 @@ The header's relative time describes the friend's latest shared feed activity. I
 The screen receives all privacy-sensitive and calculated data from the API. Flutter does not calculate friend scores, infer friendship access, or download proof media before the user explicitly opens a task that contains proof.
 
 See [`docs/feed-v2.md`](../../../../../../docs/feed-v2.md) for the API contract, scheduling rules, privacy behaviour and test procedure.
+
+- Feed search is opened from the app-bar search icon between Messages and Notifications; the active query is sent to the existing backend feed search and can be cleared from the feed chip.

@@ -20,6 +20,10 @@ public sealed class MediaService(
                 from item in dbContext.TaskProofMedia.AsNoTracking()
                 join completion in dbContext.TaskCompletions.AsNoTracking()
                     on item.TaskCompletionId equals completion.Id
+                join task in dbContext.Tasks.AsNoTracking()
+                    on completion.TaskItemId equals task.Id
+                join owner in dbContext.Users.AsNoTracking()
+                    on completion.UserId equals owner.Id
                 join post in dbContext.Posts.AsNoTracking()
                     on completion.Id equals post.TaskCompletionId into posts
                 from post in posts.DefaultIfEmpty()
@@ -28,7 +32,8 @@ public sealed class MediaService(
                 {
                     Media = item,
                     OwnerUserId = completion.UserId,
-                    IsShared = post != null && post.IsVisible
+                    OwnerIsActive = owner.IsActive,
+                    IsShared = task.ShareWithFriends && post != null && post.IsVisible
                 })
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("The requested task proof was not found.");
@@ -38,7 +43,7 @@ public sealed class MediaService(
             .AnyAsync(
                 friendship => friendship.UserId == userId && friendship.FriendUserId == media.OwnerUserId,
                 cancellationToken);
-        if (media.OwnerUserId != userId && (!media.IsShared || !isFriend))
+        if (media.OwnerUserId != userId && (!media.OwnerIsActive || !media.IsShared || !isFriend))
         {
             throw new ForbiddenException("You do not have access to this task proof.");
         }

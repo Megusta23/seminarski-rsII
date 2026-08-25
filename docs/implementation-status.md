@@ -8,7 +8,8 @@
 - Reference data: client reads plus complete admin CRUD for countries, cities, categories and recurrence types.
 - Tasks: CRUD, filtering, pagination, ownership, recurrence occurrences, completion history and proof images.
 - Social graph: friend requests, accepted friendships, profiles and friend-of-friend recommendations.
-- Feed and ranking: shared completions, viewed state, daily and weekly leaderboard.
+- Feed: shared unfinished and completed friend tasks, proof/no-proof and unseen/seen states, date filtering, server-calculated friend progress, stable pagination and protected proof access.
+- Ranking: daily and weekly leaderboard.
 - Notifications: persisted read/unread notifications, summary, mark-read actions, polling and SignalR server hub.
 - Chat: direct conversations, membership authorization, text/image messages, read state, polling and SignalR server hub.
 - Administration: dashboard, users, activation/deactivation, post moderation and reference data.

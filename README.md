@@ -15,7 +15,7 @@ The current implementation includes:
 - one-time and recurring task completions with duplicate-occurrence protection;
 - optional/required proof images validated by MIME type, magic bytes and file-size limits;
 - friends, friend requests, friend profiles and graph-based friend recommendations;
-- friends-only feed and viewed-state tracking;
+- Feed V2 with shared unfinished/completed tasks, proof/view states, friend progress, date filtering and stable pagination;
 - daily and weekly leaderboards calculated from server-side completion data;
 - read/unread system notifications with automatic polling and SignalR server support;
 - direct text/image chat with membership authorization and automatic polling;
@@ -106,7 +106,7 @@ The project uses EF Core migrations and `DATABASE_BOOTSTRAP_MODE=migrate`. Curre
 ```text
 InitialCreate
 AddPasswordResetRequests
-AddTaskOccurrenceDate
+AddApplicationMilestones
 ```
 
 The API applies pending migrations during startup. To create a new migration:
@@ -180,12 +180,13 @@ Run regression suites in this order:
 ./scripts/test-profile.sh
 ./scripts/test-reference-data.sh
 ./scripts/test-tasks.sh
+./scripts/test-feed-v2.sh
 ./scripts/test-social-features.sh
 ./scripts/test-admin-reports.sh
 ./scripts/verify-source.sh
 ```
 
-The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, feed visibility, recommendations, chat membership, moderation and PDF output.
+The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, the four Feed V2 states, progress and proof privacy, recommendations, chat membership, moderation and PDF output.
 
 `verify-source.sh` runs:
 
@@ -223,6 +224,7 @@ All private routes require a validated JWT. Admin routes require the `Admin` rol
 - [`docs/authentication.md`](docs/authentication.md)
 - [`docs/password-recovery-and-profile.md`](docs/password-recovery-and-profile.md)
 - [`docs/application-testing-guide.md`](docs/application-testing-guide.md)
+- [`docs/feed-v2.md`](docs/feed-v2.md)
 - [`docs/implementation-status.md`](docs/implementation-status.md)
 - [`recommender-dokumentacija.md`](recommender-dokumentacija.md)
 

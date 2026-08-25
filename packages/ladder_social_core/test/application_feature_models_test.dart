@@ -43,17 +43,67 @@ void main() {
   test('feed and recommendation models preserve social explanations', () {
     final FeedPost post = FeedPost.fromJson(<String, dynamic>{
       'id': 'post-id',
+      'activityType': 3,
+      'activityAtUtc': '2026-08-20T15:00:00Z',
+      'occurrenceDate': '2026-08-20',
       'authorUserId': 'author-id',
       'authorDisplayName': 'Hasan Brkic',
       'authorAvatarUrl': null,
       'taskId': 'task-id',
       'taskTitle': 'Run smoke tests',
       'categoryName': 'Work',
+      'categoryCode': 'work',
+      'recurrenceName': 'Daily',
+      'recurrenceCode': 'daily',
+      'dueAtUtc': '2026-08-20T18:00:00Z',
       'caption': 'All green.',
-      'completedAtUtc': '2026-08-20T15:00:00Z',
-      'proofMediaId': null,
-      'proofUrl': null,
+      'proofMediaId': 'proof-id',
+      'proofUrl': '/api/media/task-proofs/proof-id',
       'hasBeenViewed': false,
+      'viewedAtUtc': null,
+    });
+    final FeedPage page = FeedPage.fromJson(<String, dynamic>{
+      'items': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'task-id-2',
+          'activityType': 1,
+          'activityAtUtc': '2026-08-20T12:00:00Z',
+          'occurrenceDate': '2026-08-20',
+          'authorUserId': 'author-id',
+          'authorDisplayName': 'Hasan Brkic',
+          'authorAvatarUrl': null,
+          'taskId': 'task-id-2',
+          'taskTitle': 'Finish a shared task',
+          'categoryName': 'Work',
+          'categoryCode': 'work',
+          'recurrenceName': 'Does not repeat',
+          'recurrenceCode': 'none',
+          'dueAtUtc': null,
+          'caption': null,
+          'proofMediaId': null,
+          'proofUrl': null,
+          'hasBeenViewed': false,
+          'viewedAtUtc': null,
+        },
+      ],
+      'page': 1,
+      'pageSize': 20,
+      'totalCount': 1,
+      'totalPages': 1,
+      'date': '2026-08-20',
+      'hasFriends': true,
+      'friendCount': 1,
+      'friendProgress': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'userId': 'author-id',
+          'displayName': 'Hasan Brkic',
+          'avatarUrl': null,
+          'completedToday': 2,
+          'scheduledToday': 3,
+          'percentage': 67,
+          'currentStreak': 4,
+        },
+      ],
     });
     final FriendRecommendation recommendation = FriendRecommendation.fromJson(
       <String, dynamic>{
@@ -66,6 +116,9 @@ void main() {
     );
 
     expect(post.hasBeenViewed, isFalse);
+    expect(post.hasUnseenProof, isTrue);
+    expect(page.items.single.activityType, FeedActivityType.unfinished);
+    expect(page.friendProgress.single.percentage, 67);
     expect(recommendation.mutualFriendCount, 3);
     expect(recommendation.explanation, contains('3 mutual friends'));
   });

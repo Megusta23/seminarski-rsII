@@ -20,6 +20,7 @@ Run in this order so a failure is easy to isolate:
 ./scripts/test-profile.sh
 ./scripts/test-reference-data.sh
 ./scripts/test-tasks.sh
+./scripts/test-feed-v2.sh
 ./scripts/test-social-features.sh
 ./scripts/test-admin-reports.sh
 ./scripts/verify-source.sh
@@ -32,11 +33,14 @@ Run in this order so a failure is easy to isolate:
 3. Create one-time, daily and proof-required tasks.
 4. Complete tasks and verify completion history.
 5. Search users, send and accept friend requests using two accounts.
-6. Verify shared task appears only in a friend’s feed.
-7. Verify daily/weekly leaderboard position.
-8. Open notifications and mark them read.
-9. Start a conversation, send text and image messages.
-10. Verify session restoration and logout.
+6. On the feed, verify shared unfinished, completed-without-proof and completed-with-proof states.
+7. Open a new proof image and confirm the New badge disappears after returning.
+8. Verify friend progress, date selection, search, pull-to-refresh and pagination.
+9. Remove the friendship and confirm feed/proof access disappears.
+10. Verify daily/weekly leaderboard position.
+11. Open notifications and mark them read.
+12. Start a conversation, send text and image messages.
+13. Verify session restoration and logout.
 
 ## 4. Manual admin flow
 
@@ -53,6 +57,8 @@ Run in this order so a failure is easy to isolate:
 - Call protected routes without a token and expect 401.
 - Call admin routes with a User token and expect 403.
 - Try to access another user’s task and expect 404.
+- Try to access a friend proof after friendship removal and expect 403.
+- Confirm a private or administrator-hidden task/post never appears in Feed V2.
 - Try to read a conversation as a non-participant and expect 404.
 - Upload a file with mismatched MIME type/magic bytes and expect 400.
 - Reuse a rotated or logged-out refresh token and expect 401.

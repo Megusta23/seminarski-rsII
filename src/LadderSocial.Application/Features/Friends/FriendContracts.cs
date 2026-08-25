@@ -35,16 +35,42 @@ public sealed record FriendRequestResponse(
     DateTime CreatedAtUtc,
     DateTime? RespondedAtUtc);
 
+public sealed record MutualFriendResponse(
+    Guid UserId,
+    string DisplayName,
+    string? AvatarUrl);
+
+public sealed record MutualFriendsResponse(
+    int Count,
+    IReadOnlyCollection<MutualFriendResponse> Items);
+
+public sealed record HighlightedPostResponse(
+    Guid PostId,
+    Guid TaskId,
+    string TaskTitle,
+    string? Caption,
+    string CategoryName,
+    string CategoryCode,
+    Guid ProofMediaId,
+    string ProofUrl,
+    DateTime CompletedAtUtc,
+    DateTime HighlightedAtUtc);
+
 public sealed record FriendProfileResponse(
     Guid UserId,
     string DisplayName,
     string? Bio,
     string? AvatarUrl,
     string? CityName,
+    DateTime MemberSinceUtc,
+    int VisiblePostCount,
     int FriendCount,
     int CompletedTaskCount,
     int HabitCount,
-    int CurrentStreak);
+    int CurrentStreak,
+    bool CanMessage,
+    MutualFriendsResponse MutualFriends,
+    IReadOnlyCollection<HighlightedPostResponse> HighlightedPosts);
 
 public sealed record FriendRecommendationResponse(
     Guid UserId,

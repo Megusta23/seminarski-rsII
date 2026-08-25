@@ -1,5 +1,7 @@
+using System.Data;
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
+using LadderSocial.Application.Common.Models;
 using LadderSocial.Application.Features.Profiles;
 using LadderSocial.Infrastructure.Identity;
 using LadderSocial.Infrastructure.Persistence;
@@ -15,6 +17,8 @@ public sealed class ProfileService(
     IDateTimeProvider dateTimeProvider,
     IFileStorageService fileStorageService) : IProfileService
 {
+    private const int MaximumHighlightedPosts = 6;
+
     public async Task<CurrentProfileResponse> GetCurrentAsync(
         CancellationToken cancellationToken)
     {
@@ -167,6 +171,155 @@ public sealed class ProfileService(
         }
 
         return await GetCurrentAsync(cancellationToken);
+    }
+
+    public async Task<PagedResult<ProfileHighlightCandidateResponse>> GetHighlightCandidatesAsync(
+        PagedRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var query =
+            from post in dbContext.Posts.AsNoTracking()
+            join completion in dbContext.TaskCompletions.AsNoTracking()
+                on post.TaskCompletionId equals completion.Id
+            join task in dbContext.Tasks.AsNoTracking()
+                on completion.TaskItemId equals task.Id
+            join category in dbContext.TaskCategories.AsNoTracking()
+                on task.TaskCategoryId equals category.Id
+            join proof in dbContext.TaskProofMedia.AsNoTracking()
+                on completion.Id equals proof.TaskCompletionId
+            where post.AuthorUserId == userId &&
+                post.IsVisible &&
+                task.ShareWithFriends
+            select new
+            {
+                PostId = post.Id,
+                TaskId = task.Id,
+                TaskTitle = task.Title,
+                post.Caption,
+                CategoryName = category.Name,
+                CategoryCode = category.Code,
+                ProofMediaId = proof.Id,
+                completion.CompletedAtUtc,
+                post.IsHighlighted,
+                post.HighlightedAtUtc
+            };
+
+        if (!string.IsNullOrWhiteSpace(request.Search))
+        {
+            var search = request.Search.Trim();
+            query = query.Where(item =>
+                EF.Functions.Like(item.TaskTitle, $"%{search}%") ||
+                (item.Caption != null && EF.Functions.Like(item.Caption, $"%{search}%")));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var rows = await query
+            .OrderByDescending(item => item.IsHighlighted)
+            .ThenByDescending(item => item.HighlightedAtUtc)
+            .ThenByDescending(item => item.CompletedAtUtc)
+            .ThenByDescending(item => item.PostId)
+            .Skip((request.Page - 1) * request.PageSize)
+            .Take(request.PageSize)
+            .ToArrayAsync(cancellationToken);
+        var items = rows
+            .Select(item => new ProfileHighlightCandidateResponse(
+                item.PostId,
+                item.TaskId,
+                item.TaskTitle,
+                item.Caption,
+                item.CategoryName,
+                item.CategoryCode,
+                item.ProofMediaId,
+                $"/api/media/task-proofs/{item.ProofMediaId}",
+                item.CompletedAtUtc,
+                item.IsHighlighted,
+                item.HighlightedAtUtc))
+            .ToArray();
+
+        return new PagedResult<ProfileHighlightCandidateResponse>(
+            items,
+            request.Page,
+            request.PageSize,
+            totalCount);
+    }
+
+    public async Task HighlightPostAsync(Guid postId, CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+            var post = await (
+                    from item in dbContext.Posts
+                    join completion in dbContext.TaskCompletions
+                        on item.TaskCompletionId equals completion.Id
+                    join task in dbContext.Tasks
+                        on completion.TaskItemId equals task.Id
+                    join proof in dbContext.TaskProofMedia
+                        on completion.Id equals proof.TaskCompletionId
+                    where item.Id == postId &&
+                        item.AuthorUserId == userId &&
+                        item.IsVisible &&
+                        task.ShareWithFriends
+                    select item)
+                .SingleOrDefaultAsync(cancellationToken)
+                ?? throw new NotFoundException(
+                    "Only your visible shared posts with proof can be highlighted.");
+
+            if (post.IsHighlighted)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return;
+            }
+
+            var highlightedCount = await (
+                    from item in dbContext.Posts.AsNoTracking()
+                    join completion in dbContext.TaskCompletions.AsNoTracking()
+                        on item.TaskCompletionId equals completion.Id
+                    join task in dbContext.Tasks.AsNoTracking()
+                        on completion.TaskItemId equals task.Id
+                    join proof in dbContext.TaskProofMedia.AsNoTracking()
+                        on completion.Id equals proof.TaskCompletionId
+                    where item.AuthorUserId == userId &&
+                        item.IsHighlighted &&
+                        item.IsVisible &&
+                        task.ShareWithFriends
+                    select item.Id)
+                .CountAsync(cancellationToken);
+            if (highlightedCount >= MaximumHighlightedPosts)
+            {
+                throw new ConflictException(
+                    $"You can feature at most {MaximumHighlightedPosts} highlighted posts.");
+            }
+
+            post.IsHighlighted = true;
+            post.HighlightedAtUtc = dateTimeProvider.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+    }
+
+    public async Task RemoveHighlightAsync(Guid postId, CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var post = await dbContext.Posts
+            .SingleOrDefaultAsync(
+                item => item.Id == postId && item.AuthorUserId == userId,
+                cancellationToken)
+            ?? throw new NotFoundException("The selected post was not found.");
+        if (!post.IsHighlighted)
+        {
+            return;
+        }
+
+        post.IsHighlighted = false;
+        post.HighlightedAtUtc = null;
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private Guid RequireCurrentUserId() =>

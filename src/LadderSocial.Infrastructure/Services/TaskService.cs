@@ -220,6 +220,11 @@ public sealed class TaskService(
         entity.TaskCategoryId = request.TaskCategoryId;
         entity.RecurrenceTypeId = request.RecurrenceTypeId;
         entity.DueAtUtc = normalized.DueAtUtc;
+        if (entity.ShareWithFriends && !request.ShareWithFriends)
+        {
+            await ClearHighlightsForTaskAsync(entity.Id, cancellationToken);
+        }
+
         entity.RequiresProofImage = request.RequiresProofImage;
         entity.ShareWithFriends = request.ShareWithFriends;
         entity.Status = request.Status;
@@ -234,6 +239,7 @@ public sealed class TaskService(
             .SingleOrDefaultAsync(item => item.Id == id && item.OwnerUserId == userId, cancellationToken)
             ?? throw new NotFoundException("The requested task was not found.");
 
+        await ClearHighlightsForTaskAsync(entity.Id, cancellationToken);
         entity.IsDeleted = true;
         entity.DeletedAtUtc = dateTimeProvider.UtcNow;
         entity.DeletedByUserId = userId;
@@ -528,6 +534,24 @@ public sealed class TaskService(
         if (errors.Count > 0)
         {
             throw new ValidationException("Task completion validation failed.", errors);
+        }
+    }
+
+    private async Task ClearHighlightsForTaskAsync(
+        Guid taskId,
+        CancellationToken cancellationToken)
+    {
+        var posts = await (
+                from post in dbContext.Posts
+                join completion in dbContext.TaskCompletions
+                    on post.TaskCompletionId equals completion.Id
+                where completion.TaskItemId == taskId && post.IsHighlighted
+                select post)
+            .ToArrayAsync(cancellationToken);
+        foreach (var post in posts)
+        {
+            post.IsHighlighted = false;
+            post.HighlightedAtUtc = null;
         }
     }
 

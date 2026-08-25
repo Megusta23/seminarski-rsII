@@ -8,4 +8,6 @@ public sealed class Post : SoftDeletableEntity
     public Guid TaskCompletionId { get; set; }
     public string? Caption { get; set; }
     public bool IsVisible { get; set; } = true;
+    public bool IsHighlighted { get; set; }
+    public DateTime? HighlightedAtUtc { get; set; }
 }

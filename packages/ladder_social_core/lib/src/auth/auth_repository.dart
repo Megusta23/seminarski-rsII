@@ -1,6 +1,8 @@
 import 'package:ladder_social_core/src/auth/auth_api_service.dart';
 import 'package:ladder_social_core/src/auth/auth_models.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
+import 'package:ladder_social_core/src/friends/friend_models.dart';
+import 'package:ladder_social_core/src/models/paged_result.dart';
 import 'package:ladder_social_core/src/storage/token_store.dart';
 import 'package:ladder_social_core/src/tasks/task_models.dart';
 
@@ -142,6 +144,23 @@ final class AuthRepository {
       _apiService.updateAvatar(image);
 
   Future<CurrentProfile> removeAvatar() => _apiService.removeAvatar();
+
+  Future<PagedResult<ProfileHighlightCandidate>> getHighlightCandidates({
+    String? search,
+    int page = 1,
+    int pageSize = 20,
+  }) =>
+      _apiService.getHighlightCandidates(
+        search: search,
+        page: page,
+        pageSize: pageSize,
+      );
+
+  Future<void> highlightPost(String postId) =>
+      _apiService.highlightPost(postId);
+
+  Future<void> removeHighlight(String postId) =>
+      _apiService.removeHighlight(postId);
 
   Future<AdminAccessResult> checkAdminAccess() =>
       _apiService.checkAdminAccess();

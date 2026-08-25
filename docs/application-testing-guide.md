@@ -75,3 +75,13 @@ docker compose --env-file .env up --build -d
 ```
 
 Then run the complete automated sequence. The application must not require source-code changes, hard-coded addresses or manually edited connection strings.
+
+## Friend Profile V2
+
+Run:
+
+```bash
+./scripts/test-friend-profile-v2.sh
+```
+
+The test creates disposable users, a mutual-friend graph, recurring and completed tasks, proof posts and profile highlights. It verifies friend-only access, statistics, owner-only highlight management, the six-item limit, moderation behavior, proof authorization and friendship-removal revocation.

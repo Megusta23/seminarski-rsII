@@ -13,6 +13,7 @@ public sealed class PostConfiguration : IEntityTypeConfiguration<Post>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Caption).HasMaxLength(1000);
         builder.HasIndex(x => new { x.AuthorUserId, x.CreatedAtUtc });
+        builder.HasIndex(x => new { x.AuthorUserId, x.IsHighlighted, x.HighlightedAtUtc });
         builder.HasOne<AppUser>().WithMany().HasForeignKey(x => x.AuthorUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<TaskCompletion>().WithOne().HasForeignKey<Post>(x => x.TaskCompletionId).OnDelete(DeleteBehavior.Restrict);
     }

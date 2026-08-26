@@ -11,6 +11,7 @@ import 'package:ladder_social_mobile/src/features/friends/presentation/friends_s
 import 'package:ladder_social_mobile/src/features/leaderboard/presentation/leaderboard_screen.dart';
 import 'package:ladder_social_mobile/src/features/notifications/presentation/notifications_screen.dart';
 import 'package:ladder_social_mobile/src/features/profile/presentation/profile_screen.dart';
+import 'package:ladder_social_mobile/src/features/profile/presentation/profile_settings_sheet.dart';
 import 'package:ladder_social_mobile/src/features/tasks/presentation/tasks_screen.dart';
 
 final class AuthenticatedHomeScreen extends ConsumerStatefulWidget {
@@ -55,7 +56,12 @@ final class _AuthenticatedHomeScreenState
   Widget build(BuildContext context) {
     final AsyncValue<NotificationSummary> summary =
         ref.watch(notificationSummaryProvider);
+    final AsyncValue<CurrentProfile> currentProfile =
+        ref.watch(currentProfileProvider);
     final int unread = summary.asData?.value.unreadCount ?? 0;
+    final String appBarTitle = _selectedIndex == 4
+        ? currentProfile.asData?.value.displayName ?? 'Profile'
+        : _titles[_selectedIndex];
     final List<Widget> pages = <Widget>[
       FeedScreen(searchController: _feedSearchController),
       const FriendsScreen(),
@@ -63,49 +69,90 @@ final class _AuthenticatedHomeScreenState
       LeaderboardScreen(
         onOpenCurrentUser: () => setState(() => _selectedIndex = 4),
       ),
-      const ProfileScreen(),
+      ProfileScreen(
+        onOpenFriends: () => setState(() => _selectedIndex = 1),
+      ),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titles[_selectedIndex]),
+        centerTitle: _selectedIndex == 4,
+        title: Text(
+          appBarTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: <Widget>[
-          IconButton(
-            tooltip: 'Messages',
-            onPressed: () => Navigator.of(context).push<void>(
-              MaterialPageRoute<void>(builder: (_) => const ConversationsScreen()),
+          if (_selectedIndex == 4)
+            const ProfileSettingsAction()
+          else ...<Widget>[
+            IconButton(
+              tooltip: 'Messages',
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ConversationsScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.chat_bubble_outline),
             ),
-            icon: const Icon(Icons.chat_bubble_outline),
-          ),
-          if (_selectedIndex == 0)
-            FeedSearchAction(controller: _feedSearchController),
-          Badge(
-            isLabelVisible: unread > 0,
-            label: Text(unread > 99 ? '99+' : '$unread'),
-            child: IconButton(
-              tooltip: 'Notifications',
-              onPressed: () async {
-                await Navigator.of(context).push<void>(
-                  MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
-                );
-                ref.invalidate(notificationSummaryProvider);
-              },
-              icon: const Icon(Icons.notifications_outlined),
+            if (_selectedIndex == 0)
+              FeedSearchAction(controller: _feedSearchController),
+            Badge(
+              isLabelVisible: unread > 0,
+              label: Text(unread > 99 ? '99+' : '$unread'),
+              child: IconButton(
+                tooltip: 'Notifications',
+                onPressed: () async {
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const NotificationsScreen(),
+                    ),
+                  );
+                  ref.invalidate(notificationSummaryProvider);
+                },
+                icon: const Icon(Icons.notifications_outlined),
+              ),
             ),
-          ),
+          ],
           const SizedBox(width: 6),
         ],
       ),
       body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (int value) => setState(() => _selectedIndex = value),
+        onDestinationSelected: (int value) {
+          if (value == 4) {
+            ref.invalidate(currentProfileProvider);
+            ref.invalidate(ownProfileOverviewProvider);
+          }
+          setState(() => _selectedIndex = value);
+        },
         destinations: const <NavigationDestination>[
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Feed'),
-          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Friends'),
-          NavigationDestination(icon: Icon(Icons.task_alt_outlined), selectedIcon: Icon(Icons.task_alt), label: 'To-do'),
-          NavigationDestination(icon: Icon(Icons.emoji_events_outlined), selectedIcon: Icon(Icons.emoji_events), label: 'Ranking'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Feed',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
+            label: 'Friends',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.task_alt_outlined),
+            selectedIcon: Icon(Icons.task_alt),
+            label: 'To-do',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.emoji_events_outlined),
+            selectedIcon: Icon(Icons.emoji_events),
+            label: 'Ranking',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
         ],
       ),
     );

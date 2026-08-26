@@ -35,6 +35,10 @@ Content-Type: application/json
   "password": "{{adminPassword}}"
 }
 
+### Own profile overview
+GET {{baseUrl}}/api/profile/me/overview
+Authorization: Bearer {{userToken}}
+
 ### Reference data
 GET {{baseUrl}}/api/reference-data/task-categories
 Authorization: Bearer {{userToken}}

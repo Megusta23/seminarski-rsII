@@ -186,6 +186,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IPasswordResetEventPublisher, PasswordResetEventPublisher>();
         services.AddScoped<IPasswordRecoveryService, PasswordRecoveryService>();
+        services.AddScoped<ProfileOverviewQueryService>();
         services.AddScoped<IProfileService, ProfileService>();
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
         services.AddScoped<IAdminReferenceDataService, AdminReferenceDataService>();

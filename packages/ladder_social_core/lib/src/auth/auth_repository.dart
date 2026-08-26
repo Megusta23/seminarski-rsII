@@ -3,6 +3,7 @@ import 'package:ladder_social_core/src/auth/auth_models.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
 import 'package:ladder_social_core/src/friends/friend_models.dart';
 import 'package:ladder_social_core/src/models/paged_result.dart';
+import 'package:ladder_social_core/src/profile/own_profile_models.dart';
 import 'package:ladder_social_core/src/storage/token_store.dart';
 import 'package:ladder_social_core/src/tasks/task_models.dart';
 
@@ -119,6 +120,9 @@ final class AuthRepository {
 
   Future<CurrentProfile> getCurrentProfile() =>
       _apiService.getCurrentProfile();
+
+  Future<OwnProfileOverview> getOwnProfileOverview() =>
+      _apiService.getOwnProfileOverview();
 
   Future<CurrentProfile> updateCurrentProfile({
     required String firstName,

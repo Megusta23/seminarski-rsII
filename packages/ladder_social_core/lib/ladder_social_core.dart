@@ -18,6 +18,7 @@ export 'src/models/paged_result.dart';
 export 'src/network/api_client.dart';
 export 'src/notifications/notification_models.dart';
 export 'src/notifications/notification_repository.dart';
+export 'src/profile/own_profile_models.dart';
 export 'src/reference_data/reference_data_api_service.dart';
 export 'src/reference_data/reference_data_models.dart';
 export 'src/reference_data/reference_data_repository.dart';

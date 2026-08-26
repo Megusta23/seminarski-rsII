@@ -15,7 +15,8 @@ public sealed class ProfileService(
     UserManager<AppUser> userManager,
     ICurrentUserService currentUserService,
     IDateTimeProvider dateTimeProvider,
-    IFileStorageService fileStorageService) : IProfileService
+    IFileStorageService fileStorageService,
+    ProfileOverviewQueryService profileOverviewQueryService) : IProfileService
 {
     private const int MaximumHighlightedPosts = 6;
 
@@ -61,6 +62,42 @@ public sealed class ProfileService(
             profile.CityName,
             profile.DateOfBirth,
             roles);
+    }
+
+    public async Task<OwnProfileOverviewResponse> GetOverviewAsync(
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var overview = await profileOverviewQueryService.GetAsync(
+            userId,
+            cancellationToken);
+        var highlightedPosts = overview.HighlightedPosts
+            .Select(item => new OwnProfileHighlightedPostResponse(
+                item.PostId,
+                item.TaskId,
+                item.TaskTitle,
+                item.Caption,
+                item.CategoryName,
+                item.CategoryCode,
+                item.ProofMediaId,
+                $"/api/media/task-proofs/{item.ProofMediaId}",
+                item.CompletedAtUtc,
+                item.HighlightedAtUtc))
+            .ToArray();
+
+        return new OwnProfileOverviewResponse(
+            overview.UserId,
+            overview.DisplayName,
+            overview.Bio,
+            overview.AvatarUrl,
+            overview.CityName,
+            overview.MemberSinceUtc,
+            overview.VisiblePostCount,
+            overview.FriendCount,
+            overview.CompletedTaskCount,
+            overview.HabitCount,
+            overview.CurrentStreak,
+            highlightedPosts);
     }
 
     public async Task<CurrentProfileResponse> UpdateCurrentAsync(

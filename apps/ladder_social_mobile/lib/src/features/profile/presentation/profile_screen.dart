@@ -1,182 +1,108 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
-import 'package:ladder_social_mobile/src/features/auth/application/auth_state.dart';
+import 'package:ladder_social_mobile/src/features/friends/presentation/profile_proof_viewer_screen.dart';
+import 'package:ladder_social_mobile/src/features/profile/presentation/own_profile_widgets.dart';
+import 'package:ladder_social_mobile/src/features/profile/presentation/profile_avatar_viewer_screen.dart';
 
 final class ProfileScreen extends ConsumerStatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({required this.onOpenFriends, super.key});
+
+  final VoidCallback onOpenFriends;
 
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 final class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  bool _uploading = false;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _highlightSectionKey = GlobalKey();
 
-  Future<void> _pickAvatar() async {
-    final XFile? file = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-      maxWidth: 1200,
-    );
-    if (file == null) return;
-    final Uint8List bytes = await file.readAsBytes();
-    setState(() => _uploading = true);
-    try {
-      await ref.read(authRepositoryProvider).updateAvatar(
-            ImageUpload(
-              bytes: bytes,
-              fileName: file.name,
-              contentType: imageContentType(file.name, file.mimeType),
-            ),
-          );
-      ref.invalidate(currentProfileProvider);
-      if (mounted) showMessage(context, 'Profile photo updated.');
-    } catch (error) {
-      if (mounted) showMessage(context, ApiException.from(error).message, error: true);
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-    }
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  Future<void> _removeAvatar() async {
-    try {
-      await ref.read(authRepositoryProvider).removeAvatar();
-      ref.invalidate(currentProfileProvider);
-      if (mounted) showMessage(context, 'Profile photo removed.');
-    } catch (error) {
-      if (mounted) showMessage(context, ApiException.from(error).message, error: true);
+  Future<void> _refresh() async {
+    ref.invalidate(currentProfileProvider);
+    ref.invalidate(ownProfileOverviewProvider);
+    await ref.read(ownProfileOverviewProvider.future);
+  }
+
+  void _openPosts() {
+    final BuildContext? sectionContext = _highlightSectionKey.currentContext;
+    if (sectionContext == null) {
+      return;
     }
+    Scrollable.ensureVisible(
+      sectionContext,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: 0.05,
+    );
+  }
+
+  void _openAvatar(OwnProfileOverview profile) {
+    final String? avatarUrl = profile.avatarUrl;
+    if (avatarUrl == null || avatarUrl.isEmpty) {
+      showMessage(
+        context,
+        'Use Profile settings to add a profile picture.',
+      );
+      return;
+    }
+
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfileAvatarViewerScreen(
+          displayName: profile.displayName,
+          avatarUrl: avatarUrl,
+        ),
+      ),
+    );
+  }
+
+  void _openHighlightedPost(
+    OwnProfileOverview profile,
+    HighlightedPost post,
+  ) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ProfileProofViewerScreen(
+          post: post,
+          ownerDisplayName: profile.displayName,
+          ownerAvatarUrl: profile.avatarUrl,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final MobileAuthState authState = ref.watch(mobileAuthControllerProvider);
-    final AsyncValue<CurrentProfile> profile = ref.watch(currentProfileProvider);
-    return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(currentProfileProvider),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 110),
-        children: <Widget>[
-          profile.when(
-            data: (CurrentProfile value) => Column(
-              children: <Widget>[
-                Stack(
-                  children: <Widget>[
-                    UserAvatar(
-                      displayName: value.displayName,
-                      avatarUrl: value.avatarUrl,
-                      radius: 58,
-                    ),
-                    if (_uploading)
-                      const Positioned.fill(
-                        child: CircularProgressIndicator(),
-                      ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: IconButton.filled(
-                        tooltip: 'Change profile photo',
-                        onPressed: _uploading ? null : _pickAvatar,
-                        icon: const Icon(Icons.photo_camera_outlined),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Text(value.displayName, style: Theme.of(context).textTheme.headlineSmall),
-                Text(value.email),
-                if (value.cityName != null) ...<Widget>[
-                  const SizedBox(height: 4),
-                  Text(value.cityName!),
-                ],
-                if (value.bio != null) ...<Widget>[
-                  const SizedBox(height: 14),
-                  Text(value.bio!, textAlign: TextAlign.center),
-                ],
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    FilledButton.icon(
-                      onPressed: () async {
-                        await context.push('/edit-profile');
-                        ref.invalidate(currentProfileProvider);
-                      },
-                      icon: const Icon(Icons.edit_outlined),
-                      label: const Text('Edit profile'),
-                    ),
-                    if (value.avatarUrl != null) ...<Widget>[
-                      const SizedBox(width: 10),
-                      OutlinedButton.icon(
-                        onPressed: _removeAvatar,
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('Remove photo'),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Card(
-                  child: Column(
-                    children: <Widget>[
-                      ListTile(
-                        leading: const Icon(Icons.cake_outlined),
-                        title: const Text('Date of birth'),
-                        subtitle: Text(value.dateOfBirth == null
-                            ? 'Not provided'
-                            : formatDate(value.dateOfBirth!)),
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.badge_outlined),
-                        title: const Text('Roles'),
-                        subtitle: Text(value.roles.join(', ')),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (Object error, StackTrace stackTrace) =>
-                AppErrorView(error: error, onRetry: () => ref.invalidate(currentProfileProvider)),
-          ),
-          const SizedBox(height: 14),
-          Card(
-            child: Column(
-              children: <Widget>[
-                ListTile(
-                  leading: const Icon(Icons.auto_awesome_outlined),
-                  title: const Text('Manage highlighted posts'),
-                  subtitle: const Text('Feature up to six completed tasks with proof'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/manage-highlights'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.password_outlined),
-                  title: const Text('Change password'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/change-password'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.logout),
-                  title: const Text('Log out'),
-                  enabled: !authState.isBusy,
-                  onTap: authState.isBusy
-                      ? null
-                      : () => ref.read(mobileAuthControllerProvider.notifier).logout(),
-                ),
-              ],
-            ),
-          ),
-        ],
+    final AsyncValue<OwnProfileOverview> overview =
+        ref.watch(ownProfileOverviewProvider);
+
+    return overview.when(
+      loading: () => const OwnProfileLoadingView(),
+      error: (Object error, StackTrace stackTrace) => AppErrorView(
+        error: error,
+        onRetry: () => ref.invalidate(ownProfileOverviewProvider),
+      ),
+      data: (OwnProfileOverview profile) => RefreshIndicator(
+        onRefresh: _refresh,
+        child: OwnProfileBody(
+          profile: profile,
+          controller: _scrollController,
+          highlightSectionKey: _highlightSectionKey,
+          onOpenAvatar: () => _openAvatar(profile),
+          onOpenPosts: _openPosts,
+          onOpenFriends: widget.onOpenFriends,
+          onOpenHighlightedPost: (HighlightedPost post) =>
+              _openHighlightedPost(profile, post),
+        ),
       ),
     );
   }

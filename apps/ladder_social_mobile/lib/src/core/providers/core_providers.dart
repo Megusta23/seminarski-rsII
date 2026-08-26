@@ -92,6 +92,12 @@ final AutoDisposeFutureProvider<CurrentProfile> currentProfileProvider =
   return ref.watch(authRepositoryProvider).getCurrentProfile();
 });
 
+final AutoDisposeFutureProvider<OwnProfileOverview> ownProfileOverviewProvider =
+    FutureProvider.autoDispose<OwnProfileOverview>((Ref ref) async {
+  _requireAuthenticated(ref);
+  return ref.watch(authRepositoryProvider).getOwnProfileOverview();
+});
+
 final AutoDisposeFutureProvider<List<CountryItem>> countriesProvider =
     FutureProvider.autoDispose<List<CountryItem>>((Ref ref) async {
   _requireAuthenticated(ref);

@@ -4,7 +4,7 @@
 
 - Infrastructure: SQL Server, EF Core migrations, Docker Compose, RabbitMQ, Worker, smtp4dev and persistent upload storage.
 - Security: Identity password hashing, JWT, roles, refresh rotation, revocation, security-stamp checks, password reset and change-password.
-- Profile: current profile, city, date of birth, biography and avatar upload/removal.
+- Profile: Instagram-style Own Profile V2, current profile editing, avatar upload/removal, social statistics and secure highlighted proof posts.
 - Reference data: client reads plus complete admin CRUD for countries, cities, categories and recurrence types.
 - Tasks: CRUD, filtering, pagination, ownership, recurrence occurrences, completion history, proof images and document-aligned To-do V2 sections/state controls.
 - Social graph: friend requests, accepted friendships, graph-based recommendations and Friend Profile V2 with mutual friends, server-calculated statistics and secure highlighted proof posts.

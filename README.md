@@ -8,7 +8,7 @@ The current implementation includes:
 
 - registration, login, JWT authorization, refresh-token rotation and server-side logout;
 - forgot/reset/change password, RabbitMQ delivery and smtp4dev testing;
-- profile editing and protected avatar upload;
+- Instagram-style Own Profile V2, profile editing, social statistics, highlighted proof posts and protected avatar upload;
 - countries, cities, task categories and recurrence types;
 - administrator CRUD for all reference data, with search, status filters and pagination;
 - task CRUD, ownership checks, filtering, sorting, pagination and master-detail mobile UI;
@@ -183,6 +183,7 @@ Run regression suites in this order:
 ./scripts/test-todo-v2.sh
 ./scripts/test-feed-v2.sh
 ./scripts/test-friend-profile-v2.sh
+./scripts/test-own-profile-v2.sh
 ./scripts/test-leaderboard-v2.sh
 ./scripts/test-social-features.sh
 ./scripts/test-admin-reports.sh

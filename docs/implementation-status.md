@@ -6,7 +6,7 @@
 - Security: Identity password hashing, JWT, roles, refresh rotation, revocation, security-stamp checks, password reset and change-password.
 - Profile: current profile, city, date of birth, biography and avatar upload/removal.
 - Reference data: client reads plus complete admin CRUD for countries, cities, categories and recurrence types.
-- Tasks: CRUD, filtering, pagination, ownership, recurrence occurrences, completion history and proof images.
+- Tasks: CRUD, filtering, pagination, ownership, recurrence occurrences, completion history, proof images and document-aligned To-do V2 sections/state controls.
 - Social graph: friend requests, accepted friendships, graph-based recommendations and Friend Profile V2 with mutual friends, server-calculated statistics and secure highlighted proof posts.
 - Feed: shared unfinished and completed friend tasks, proof/no-proof and unseen/seen states, date filtering, server-calculated friend progress, stable pagination and protected proof access.
 - Ranking: daily and weekly leaderboard.

@@ -30,7 +30,7 @@ final class _AuthenticatedHomeScreenState
   static const List<String> _titles = <String>[
     'Feed',
     'Friends',
-    'Tasks',
+    'To-do',
     'Ranking',
     'Profile',
   ];
@@ -103,7 +103,7 @@ final class _AuthenticatedHomeScreenState
         destinations: const <NavigationDestination>[
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Feed'),
           NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Friends'),
-          NavigationDestination(icon: Icon(Icons.task_alt_outlined), selectedIcon: Icon(Icons.task_alt), label: 'Tasks'),
+          NavigationDestination(icon: Icon(Icons.task_alt_outlined), selectedIcon: Icon(Icons.task_alt), label: 'To-do'),
           NavigationDestination(icon: Icon(Icons.emoji_events_outlined), selectedIcon: Icon(Icons.emoji_events), label: 'Ranking'),
           NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
         ],

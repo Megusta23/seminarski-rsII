@@ -3,6 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
+import 'package:ladder_social_mobile/src/features/tasks/presentation/todo_visuals.dart';
+import 'package:ladder_social_mobile/src/features/tasks/presentation/todo_widgets.dart';
+
+const Color _formAccent = Color(0xFF675D6D);
+const Color _formBorder = Color(0xFFE6E1E8);
+const Color _formSurface = Colors.white;
 
 final class TaskFormScreen extends ConsumerStatefulWidget {
   const TaskFormScreen({this.initialTask, super.key});
@@ -30,6 +36,15 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
   String? _error;
 
   bool get _isEditing => widget.initialTask != null;
+
+  ReferenceItem? get _selectedCategory {
+    for (final ReferenceItem category in _categories) {
+      if (category.id == _categoryId) {
+        return category;
+      }
+    }
+    return _categories.isEmpty ? null : _categories.first;
+  }
 
   @override
   void initState() {
@@ -59,7 +74,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
         ref.read(referenceDataRepositoryProvider).getTaskCategories(),
         ref.read(referenceDataRepositoryProvider).getRecurrenceTypes(),
       ]);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _categories = values[0] as List<ReferenceItem>;
         _recurrenceTypes = values[1] as List<ReferenceItem>;
@@ -69,7 +86,9 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
         _loadingReferences = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _loadingReferences = false;
         _error = ApiException.from(error).message;
@@ -86,21 +105,31 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
       lastDate: DateTime(now.year + 10),
       initialDate: initial,
     );
-    if (date == null || !mounted) return;
+    if (date == null || !mounted) {
+      return;
+    }
     final TimeOfDay? time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(initial),
     );
-    if (time == null) return;
+    if (time == null) {
+      return;
+    }
     setState(() {
-      _dueAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _dueAt =
+          DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
     if (_categoryId == null || _recurrenceTypeId == null) {
-      setState(() => _error = 'Categories and recurrence types must be configured first.');
+      setState(
+        () => _error =
+            'Categories and recurrence types must be configured first.',
+      );
       return;
     }
     setState(() {
@@ -122,164 +151,262 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
       final TaskDetail saved = _isEditing
           ? await repository.updateTask(widget.initialTask!.id, draft)
           : await repository.createTask(draft);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pop<TaskDetail>(saved);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() => _error = ApiException.from(error).message);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isEditing ? 'Edit task' : 'New task')),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text(_isEditing ? 'Edit task' : 'New task'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: _loadingReferences
           ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: ListView(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 36),
                 children: <Widget>[
-                  TextFormField(
-                    controller: _titleController,
-                    autofocus: !_isEditing,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Title',
-                      prefixIcon: Icon(Icons.task_alt),
-                    ),
-                    maxLength: 200,
-                    validator: (String? value) => value == null || value.trim().isEmpty
-                        ? 'Enter a task title.'
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _descriptionController,
-                    decoration: const InputDecoration(
-                      labelText: 'Description',
-                      prefixIcon: Icon(Icons.notes),
-                      alignLabelWithHint: true,
-                    ),
-                    maxLines: 4,
-                    maxLength: 2000,
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _categoryId,
-                    decoration: const InputDecoration(
-                      labelText: 'Category',
-                      prefixIcon: Icon(Icons.category_outlined),
-                    ),
-                    items: _categories
-                        .map((ReferenceItem item) => DropdownMenuItem<String>(
-                              value: item.id,
-                              child: Text(item.name),
-                            ))
-                        .toList(growable: false),
-                    onChanged: _saving
-                        ? null
-                        : (String? value) => setState(() => _categoryId = value),
-                    validator: (String? value) =>
-                        value == null ? 'Select a category.' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _recurrenceTypeId,
-                    decoration: const InputDecoration(
-                      labelText: 'Recurrence',
-                      prefixIcon: Icon(Icons.repeat),
-                    ),
-                    items: _recurrenceTypes
-                        .map((ReferenceItem item) => DropdownMenuItem<String>(
-                              value: item.id,
-                              child: Text(item.name),
-                            ))
-                        .toList(growable: false),
-                    onChanged: _saving
-                        ? null
-                        : (String? value) =>
-                            setState(() => _recurrenceTypeId = value),
-                    validator: (String? value) =>
-                        value == null ? 'Select a recurrence type.' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.event_outlined),
-                    title: const Text('Deadline'),
-                    subtitle: Text(
-                      _dueAt == null ? 'No deadline' : formatDateTime(_dueAt!),
-                    ),
-                    trailing: Wrap(
+                  _TaskFormSection(
+                    title: 'Task',
+                    icon: Icons.edit_note_outlined,
+                    child: Column(
                       children: <Widget>[
-                        if (_dueAt != null)
-                          IconButton(
-                            tooltip: 'Remove deadline',
-                            onPressed: () => setState(() => _dueAt = null),
-                            icon: const Icon(Icons.clear),
+                        TextFormField(
+                          controller: _titleController,
+                          autofocus: !_isEditing,
+                          textInputAction: TextInputAction.next,
+                          decoration: _fieldDecoration(
+                            label: 'Title',
+                            icon: Icons.task_alt,
                           ),
-                        IconButton(
-                          tooltip: 'Select deadline',
-                          onPressed: _pickDueAt,
-                          icon: const Icon(Icons.edit_calendar_outlined),
+                          maxLength: 200,
+                          validator: (String? value) =>
+                              value == null || value.trim().isEmpty
+                                  ? 'Enter a task title.'
+                                  : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _descriptionController,
+                          decoration: _fieldDecoration(
+                            label: 'Description',
+                            icon: Icons.notes,
+                            alignLabelWithHint: true,
+                          ),
+                          maxLines: 4,
+                          maxLength: 2000,
                         ),
                       ],
                     ),
                   ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Require proof image'),
-                    subtitle: const Text('A photo must be attached when completing this task.'),
-                    value: _requiresProof,
-                    onChanged: _saving
-                        ? null
-                        : (bool value) => setState(() => _requiresProof = value),
+                  const SizedBox(height: 16),
+                  _TaskFormSection(
+                    title: 'Work block',
+                    icon: Icons.palette_outlined,
+                    child: LayoutBuilder(
+                      builder: (
+                        BuildContext context,
+                        BoxConstraints constraints,
+                      ) {
+                        final double width = (constraints.maxWidth - 10) / 2;
+                        return Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: _categories
+                              .map(
+                                (ReferenceItem category) => SizedBox(
+                                  width: width,
+                                  child: _CategoryOption(
+                                    category: category,
+                                    selected: category.id == _categoryId,
+                                    onTap: _saving
+                                        ? null
+                                        : () => setState(
+                                              () => _categoryId = category.id,
+                                            ),
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                        );
+                      },
+                    ),
                   ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Share with friends'),
-                    subtitle: const Text('Show this task and its completion in accepted friends’ feed.'),
-                    value: _shareWithFriends,
-                    onChanged: _saving
-                        ? null
-                        : (bool value) => setState(() => _shareWithFriends = value),
+                  const SizedBox(height: 16),
+                  _TaskFormSection(
+                    title: 'Schedule',
+                    icon: Icons.calendar_month_outlined,
+                    child: Column(
+                      children: <Widget>[
+                        DropdownButtonFormField<String>(
+                          key: ValueKey<String?>(_recurrenceTypeId),
+                          initialValue: _recurrenceTypeId,
+                          decoration: _fieldDecoration(
+                            label: 'Recurrence',
+                            icon: Icons.repeat,
+                          ),
+                          items: _recurrenceTypes
+                              .map(
+                                (ReferenceItem item) =>
+                                    DropdownMenuItem<String>(
+                                  value: item.id,
+                                  child: Text(item.name),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: _saving
+                              ? null
+                              : (String? value) =>
+                                  setState(() => _recurrenceTypeId = value),
+                          validator: (String? value) => value == null
+                              ? 'Select a recurrence type.'
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        _DeadlineTile(
+                          dueAt: _dueAt,
+                          enabled: !_saving,
+                          onPick: _pickDueAt,
+                          onClear: () => setState(() => _dueAt = null),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _TaskFormSection(
+                    title: 'Sharing and proof',
+                    icon: Icons.people_outline,
+                    child: Column(
+                      children: <Widget>[
+                        _ColoredSwitchTile(
+                          title: 'Require proof image',
+                          subtitle:
+                              'A photo must be attached when completing this task.',
+                          value: _requiresProof,
+                          icon: Icons.photo_camera_outlined,
+                          onChanged: _saving
+                              ? null
+                              : (bool value) =>
+                                  setState(() => _requiresProof = value),
+                        ),
+                        const SizedBox(height: 10),
+                        _ColoredSwitchTile(
+                          title: 'Share with friends',
+                          subtitle:
+                              'Show this task and its completion in accepted friends’ feed.',
+                          value: _shareWithFriends,
+                          icon: Icons.people_alt_outlined,
+                          onChanged: _saving
+                              ? null
+                              : (bool value) =>
+                                  setState(() => _shareWithFriends = value),
+                        ),
+                      ],
+                    ),
                   ),
                   if (_isEditing) ...<Widget>[
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      initialValue: _status,
-                      decoration: const InputDecoration(
-                        labelText: 'Status',
-                        prefixIcon: Icon(Icons.flag_outlined),
+                    const SizedBox(height: 16),
+                    _TaskFormSection(
+                      title: 'Task status',
+                      icon: Icons.flag_outlined,
+                      child: DropdownButtonFormField<int>(
+                        key: ValueKey<int>(_status),
+                        initialValue: _status,
+                        decoration: _fieldDecoration(
+                          label: 'Status',
+                          icon: Icons.flag_outlined,
+                        ),
+                        items: const <DropdownMenuItem<int>>[
+                          DropdownMenuItem(
+                            value: TaskStatus.active,
+                            child: Text('Active'),
+                          ),
+                          DropdownMenuItem(
+                            value: TaskStatus.cancelled,
+                            child: Text('Cancelled'),
+                          ),
+                          DropdownMenuItem(
+                            value: TaskStatus.archived,
+                            child: Text('Archived'),
+                          ),
+                        ],
+                        onChanged: _saving
+                            ? null
+                            : (int? value) =>
+                                setState(() => _status = value ?? _status),
                       ),
-                      items: const <DropdownMenuItem<int>>[
-                        DropdownMenuItem(value: TaskStatus.active, child: Text('Active')),
-                        DropdownMenuItem(value: TaskStatus.cancelled, child: Text('Cancelled')),
-                        DropdownMenuItem(value: TaskStatus.archived, child: Text('Archived')),
-                      ],
-                      onChanged: _saving
-                          ? null
-                          : (int? value) => setState(() => _status = value ?? _status),
                     ),
                   ],
+                  const SizedBox(height: 16),
+                  _TaskFormSection(
+                    title: 'Preview',
+                    icon: Icons.visibility_outlined,
+                    child: ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _titleController,
+                      builder: (
+                        BuildContext context,
+                        TextEditingValue value,
+                        Widget? child,
+                      ) {
+                        return TodoTaskPreview(
+                          title: value.text,
+                          categoryCode: _selectedCategory?.code ?? '',
+                          requiresProof: _requiresProof,
+                        );
+                      },
+                    ),
+                  ),
                   if (_error != null) ...<Widget>[
-                    const SizedBox(height: 12),
-                    Text(
-                      _error!,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .errorContainer
+                            .withValues(alpha: 0.72),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                      ),
                     ),
                   ],
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 22),
                   FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      backgroundColor: _formAccent,
+                      foregroundColor: Colors.white,
+                    ),
                     onPressed: _saving ? null : _save,
                     icon: _saving
                         ? const SizedBox.square(
                             dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Icon(Icons.save_outlined),
                     label: Text(_isEditing ? 'Save changes' : 'Create task'),
@@ -287,6 +414,226 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+InputDecoration _fieldDecoration({
+  required String label,
+  required IconData icon,
+  bool alignLabelWithHint = false,
+}) {
+  return InputDecoration(
+    labelText: label,
+    prefixIcon: Icon(icon, color: _formAccent),
+    alignLabelWithHint: alignLabelWithHint,
+    filled: true,
+    fillColor: _formSurface,
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: _formBorder),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: _formAccent, width: 1.8),
+    ),
+    errorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.red.shade300),
+    ),
+    focusedErrorBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.red.shade400, width: 1.8),
+    ),
+  );
+}
+
+final class _TaskFormSection extends StatelessWidget {
+  const _TaskFormSection({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _formSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _formBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(icon, size: 20, color: _formAccent),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+final class _CategoryOption extends StatelessWidget {
+  const _CategoryOption({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ReferenceItem category;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final TodoCategoryPalette palette = todoCategoryPalette(category.code);
+    return Material(
+      color: palette.background,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? palette.accent
+                  : palette.accent.withValues(alpha: 0.20),
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: palette.accent,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  category.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: palette.foreground,
+                        fontWeight:
+                            selected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                ),
+              ),
+              if (selected)
+                Icon(Icons.check_circle, color: palette.accent, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _DeadlineTile extends StatelessWidget {
+  const _DeadlineTile({
+    required this.dueAt,
+    required this.enabled,
+    required this.onPick,
+    required this.onClear,
+  });
+
+  final DateTime? dueAt;
+  final bool enabled;
+  final VoidCallback onPick;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _formSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _formBorder),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.event_outlined, color: _formAccent),
+        title: const Text('Deadline'),
+        subtitle: Text(dueAt == null ? 'No deadline' : formatDateTime(dueAt!)),
+        trailing: Wrap(
+          spacing: 2,
+          children: <Widget>[
+            if (dueAt != null)
+              IconButton(
+                tooltip: 'Remove deadline',
+                onPressed: enabled ? onClear : null,
+                icon: const Icon(Icons.clear),
+              ),
+            IconButton(
+              tooltip: 'Select deadline',
+              onPressed: enabled ? onPick : null,
+              icon: const Icon(Icons.edit_calendar_outlined),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+final class _ColoredSwitchTile extends StatelessWidget {
+  const _ColoredSwitchTile({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.icon,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final bool value;
+  final IconData icon;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _formSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _formBorder),
+      ),
+      child: SwitchListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        secondary: Icon(icon, color: _formAccent),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        value: value,
+        activeThumbColor: _formAccent,
+        onChanged: onChanged,
+      ),
     );
   }
 }

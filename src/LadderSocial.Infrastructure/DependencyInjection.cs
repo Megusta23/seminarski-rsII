@@ -15,6 +15,7 @@ using LadderSocial.Application.Features.ReferenceData;
 using LadderSocial.Infrastructure.Identity;
 using LadderSocial.Infrastructure.Messaging;
 using LadderSocial.Infrastructure.Persistence;
+using LadderSocial.Infrastructure.Persistence.Seed;
 using LadderSocial.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -199,6 +200,7 @@ public static class DependencyInjection
         services.AddScoped<IChatService, ChatService>();
         services.AddScoped<IAdminService, AdminService>();
         services.AddScoped<IReportService, ReportService>();
+        services.AddScoped<DemoDataSeeder>();
         services.AddScoped<DatabaseInitializer>();
 
         return services;

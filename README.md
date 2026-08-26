@@ -62,6 +62,14 @@ cp .env.example .env
 
 Never commit `.env`. The application reads secrets and infrastructure values from environment variables, including JWT, SQL Server, RabbitMQ, SMTP and password-reset keys.
 
+Realistic startup data is enabled with:
+
+```env
+SEED_DEMO_DATA=true
+```
+
+On a fresh database, the API applies migrations and creates connected users, profiles, friendships, requests, tasks, completions, protected seed images, feed posts, highlights, notifications, conversations and report data. The seed is idempotent and does not overwrite existing passwords or user-created changes after initialization.
+
 Important local defaults:
 
 ```text
@@ -107,6 +115,7 @@ The project uses EF Core migrations and `DATABASE_BOOTSTRAP_MODE=migrate`. Curre
 InitialCreate
 AddPasswordResetRequests
 AddApplicationMilestones
+AddProfileHighlights
 ```
 
 The API applies pending migrations during startup. To create a new migration:
@@ -188,6 +197,7 @@ Run regression suites in this order:
 ./scripts/test-friends-v2.sh
 ./scripts/test-social-features.sh
 ./scripts/test-admin-reports.sh
+./scripts/test-demo-seed.sh
 ./scripts/verify-source.sh
 ```
 
@@ -235,15 +245,36 @@ All private routes require a validated JWT. Admin routes require the `Admin` rol
 - [`docs/leaderboard-v2.md`](docs/leaderboard-v2.md)
 - [`docs/todo-v2.md`](docs/todo-v2.md)
 - [`docs/implementation-status.md`](docs/implementation-status.md)
+- [`docs/demo-seed-data.md`](docs/demo-seed-data.md)
 - [`recommender-dokumentacija.md`](recommender-dokumentacija.md)
 
 ## Seed credentials
 
-Seed credentials are configured in `.env`:
+The default test credentials from `.env.example` are:
 
 ```text
-SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD
-SEED_MOBILE_EMAIL / SEED_MOBILE_PASSWORD
+Desktop administrator
+Email:    admin@laddersocial.local
+Password: Admin_Test_220087!
+Role:     Admin
+
+Primary mobile user
+Email:    mobile@laddersocial.local
+Password: Mobile_Test_220087!
+Role:     User
 ```
 
-Do not place real passwords in README files, Git history or GitHub Releases.
+Additional demo accounts use the primary mobile password and these emails:
+
+```text
+faruk@laddersocial.local
+ajdin@laddersocial.local
+harun@laddersocial.local
+edhem@laddersocial.local
+amina@laddersocial.local
+lejla@laddersocial.local
+amar@laddersocial.local
+selma@laddersocial.local
+```
+
+These are local evaluation credentials, not real production secrets. The raw `.env` file must still remain outside Git history and GitHub Release assets.

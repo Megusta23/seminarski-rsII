@@ -2,6 +2,7 @@ using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Security;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Infrastructure.Identity;
+using LadderSocial.Infrastructure.Persistence.Seed;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -15,6 +16,7 @@ public sealed class DatabaseInitializer(
     UserManager<AppUser> userManager,
     IDateTimeProvider dateTimeProvider,
     IConfiguration configuration,
+    DemoDataSeeder demoDataSeeder,
     ILogger<DatabaseInitializer> logger)
 {
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -35,6 +37,7 @@ public sealed class DatabaseInitializer(
         await SeedRolesAsync();
         await SeedUsersAsync(cancellationToken);
         await SeedReferenceDataAsync(cancellationToken);
+        await demoDataSeeder.SeedAsync(cancellationToken);
     }
 
     private async Task SeedRolesAsync()
@@ -62,8 +65,8 @@ public sealed class DatabaseInitializer(
         await SeedUserAsync(
             configuration["SEED_MOBILE_EMAIL"],
             configuration["SEED_MOBILE_PASSWORD"],
-            "Mobile",
-            "User",
+            "Hasan",
+            "Brkic",
             RoleNames.User,
             cancellationToken);
     }
@@ -123,7 +126,7 @@ public sealed class DatabaseInitializer(
                 requiresUpdate = true;
             }
 
-            if (!string.Equals(user.DisplayName, displayName, StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(user.DisplayName))
             {
                 user.DisplayName = displayName;
                 requiresUpdate = true;

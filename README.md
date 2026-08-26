@@ -180,6 +180,7 @@ Run regression suites in this order:
 ./scripts/test-profile.sh
 ./scripts/test-reference-data.sh
 ./scripts/test-tasks.sh
+./scripts/test-todo-v2.sh
 ./scripts/test-feed-v2.sh
 ./scripts/test-friend-profile-v2.sh
 ./scripts/test-leaderboard-v2.sh
@@ -188,7 +189,7 @@ Run regression suites in this order:
 ./scripts/verify-source.sh
 ```
 
-The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, the four Feed V2 states, profile statistics and highlights, document-aligned daily/weekly leaderboard behavior, progress and proof privacy, recommendations, chat membership, moderation and PDF output.
+The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, the three To-do V2 sections and four task states, the four Feed V2 states, profile statistics and highlights, document-aligned daily/weekly leaderboard behavior, progress and proof privacy, recommendations, chat membership, moderation and PDF output.
 
 `verify-source.sh` runs:
 
@@ -229,6 +230,7 @@ All private routes require a validated JWT. Admin routes require the `Admin` rol
 - [`docs/feed-v2.md`](docs/feed-v2.md)
 - [`docs/friend-profile-v2.md`](docs/friend-profile-v2.md)
 - [`docs/leaderboard-v2.md`](docs/leaderboard-v2.md)
+- [`docs/todo-v2.md`](docs/todo-v2.md)
 - [`docs/implementation-status.md`](docs/implementation-status.md)
 - [`recommender-dokumentacija.md`](recommender-dokumentacija.md)
 

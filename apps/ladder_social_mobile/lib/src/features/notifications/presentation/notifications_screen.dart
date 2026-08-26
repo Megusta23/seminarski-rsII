@@ -63,10 +63,14 @@ final class _NotificationsScreenState
   }
 
   Future<void> _mark(AppNotification notification) async {
-    if (notification.isRead) return;
+    if (notification.isRead) {
+      return;
+    }
     try {
       await ref.read(notificationRepositoryProvider).markRead(notification.id);
-      if (mounted) _load();
+      if (mounted) {
+        _load();
+      }
     } catch (error) {
       if (mounted) {
         showMessage(context, ApiException.from(error).message, error: true);

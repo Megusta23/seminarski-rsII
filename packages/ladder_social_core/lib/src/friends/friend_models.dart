@@ -12,6 +12,7 @@ final class FriendSummary {
   const FriendSummary({
     required this.userId,
     required this.displayName,
+    required this.mutualFriendCount,
     required this.completedTaskCount,
     required this.currentStreak,
     this.avatarUrl,
@@ -21,6 +22,7 @@ final class FriendSummary {
         userId: requiredString(json, 'userId'),
         displayName: requiredString(json, 'displayName'),
         avatarUrl: nullableString(json['avatarUrl']),
+        mutualFriendCount: requiredInt(json, 'mutualFriendCount'),
         completedTaskCount: requiredInt(json, 'completedTaskCount'),
         currentStreak: requiredInt(json, 'currentStreak'),
       );
@@ -28,6 +30,7 @@ final class FriendSummary {
   final String userId;
   final String displayName;
   final String? avatarUrl;
+  final int mutualFriendCount;
   final int completedTaskCount;
   final int currentStreak;
 }
@@ -40,7 +43,10 @@ final class UserSearchItem {
     required this.isFriend,
     required this.hasOutgoingPendingRequest,
     required this.hasIncomingPendingRequest,
+    required this.mutualFriendCount,
     this.avatarUrl,
+    this.outgoingRequestId,
+    this.incomingRequestId,
   });
 
   factory UserSearchItem.fromJson(Map<String, dynamic> json) => UserSearchItem(
@@ -53,6 +59,9 @@ final class UserSearchItem {
             requiredBool(json, 'hasOutgoingPendingRequest'),
         hasIncomingPendingRequest:
             requiredBool(json, 'hasIncomingPendingRequest'),
+        mutualFriendCount: requiredInt(json, 'mutualFriendCount'),
+        outgoingRequestId: nullableString(json['outgoingRequestId']),
+        incomingRequestId: nullableString(json['incomingRequestId']),
       );
 
   final String userId;
@@ -62,6 +71,37 @@ final class UserSearchItem {
   final bool isFriend;
   final bool hasOutgoingPendingRequest;
   final bool hasIncomingPendingRequest;
+  final int mutualFriendCount;
+  final String? outgoingRequestId;
+  final String? incomingRequestId;
+
+  UserSearchItem copyWith({
+    bool? isFriend,
+    bool? hasOutgoingPendingRequest,
+    bool? hasIncomingPendingRequest,
+    String? outgoingRequestId,
+    String? incomingRequestId,
+    bool clearOutgoingRequestId = false,
+    bool clearIncomingRequestId = false,
+  }) =>
+      UserSearchItem(
+        userId: userId,
+        displayName: displayName,
+        email: email,
+        avatarUrl: avatarUrl,
+        isFriend: isFriend ?? this.isFriend,
+        hasOutgoingPendingRequest:
+            hasOutgoingPendingRequest ?? this.hasOutgoingPendingRequest,
+        hasIncomingPendingRequest:
+            hasIncomingPendingRequest ?? this.hasIncomingPendingRequest,
+        mutualFriendCount: mutualFriendCount,
+        outgoingRequestId: clearOutgoingRequestId
+            ? null
+            : outgoingRequestId ?? this.outgoingRequestId,
+        incomingRequestId: clearIncomingRequestId
+            ? null
+            : incomingRequestId ?? this.incomingRequestId,
+      );
 }
 
 final class FriendRequestItem {
@@ -74,6 +114,7 @@ final class FriendRequestItem {
     required this.status,
     required this.createdAtUtc,
     this.senderAvatarUrl,
+    this.receiverAvatarUrl,
     this.respondedAtUtc,
   });
 
@@ -85,6 +126,7 @@ final class FriendRequestItem {
         senderAvatarUrl: nullableString(json['senderAvatarUrl']),
         receiverUserId: requiredString(json, 'receiverUserId'),
         receiverDisplayName: requiredString(json, 'receiverDisplayName'),
+        receiverAvatarUrl: nullableString(json['receiverAvatarUrl']),
         status: requiredInt(json, 'status'),
         createdAtUtc: requiredDateTime(json, 'createdAtUtc'),
         respondedAtUtc: nullableDateTime(json['respondedAtUtc']),
@@ -96,6 +138,7 @@ final class FriendRequestItem {
   final String? senderAvatarUrl;
   final String receiverUserId;
   final String receiverDisplayName;
+  final String? receiverAvatarUrl;
   final int status;
   final DateTime createdAtUtc;
   final DateTime? respondedAtUtc;

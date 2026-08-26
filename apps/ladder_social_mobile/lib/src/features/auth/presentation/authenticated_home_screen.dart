@@ -8,6 +8,8 @@ import 'package:ladder_social_mobile/src/features/chat/presentation/conversation
 import 'package:ladder_social_mobile/src/features/feed/presentation/feed_screen.dart';
 import 'package:ladder_social_mobile/src/features/feed/presentation/feed_search_action.dart';
 import 'package:ladder_social_mobile/src/features/friends/presentation/friends_screen.dart';
+import 'package:ladder_social_mobile/src/features/friends/presentation/friends_screen_controller.dart';
+import 'package:ladder_social_mobile/src/features/friends/presentation/friends_search_action.dart';
 import 'package:ladder_social_mobile/src/features/leaderboard/presentation/leaderboard_screen.dart';
 import 'package:ladder_social_mobile/src/features/notifications/presentation/notifications_screen.dart';
 import 'package:ladder_social_mobile/src/features/profile/presentation/profile_screen.dart';
@@ -27,6 +29,8 @@ final class _AuthenticatedHomeScreenState
   int _selectedIndex = 0;
   Timer? _notificationTimer;
   final FeedSearchController _feedSearchController = FeedSearchController();
+  final FriendsScreenController _friendsScreenController =
+      FriendsScreenController();
 
   static const List<String> _titles = <String>[
     'Feed',
@@ -49,6 +53,7 @@ final class _AuthenticatedHomeScreenState
   void dispose() {
     _notificationTimer?.cancel();
     _feedSearchController.dispose();
+    _friendsScreenController.dispose();
     super.dispose();
   }
 
@@ -64,7 +69,7 @@ final class _AuthenticatedHomeScreenState
         : _titles[_selectedIndex];
     final List<Widget> pages = <Widget>[
       FeedScreen(searchController: _feedSearchController),
-      const FriendsScreen(),
+      FriendsScreen(controller: _friendsScreenController),
       const TasksScreen(),
       LeaderboardScreen(
         onOpenCurrentUser: () => setState(() => _selectedIndex = 4),
@@ -97,6 +102,8 @@ final class _AuthenticatedHomeScreenState
             ),
             if (_selectedIndex == 0)
               FeedSearchAction(controller: _feedSearchController),
+            if (_selectedIndex == 1)
+              FriendsSearchAction(controller: _friendsScreenController),
             Badge(
               isLabelVisible: unread > 0,
               label: Text(unread > 99 ? '99+' : '$unread'),

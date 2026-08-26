@@ -12,6 +12,7 @@ public sealed record FriendSummaryResponse(
     Guid UserId,
     string DisplayName,
     string? AvatarUrl,
+    int MutualFriendCount,
     int CompletedTaskCount,
     int CurrentStreak);
 
@@ -22,7 +23,10 @@ public sealed record UserSearchResponse(
     string? AvatarUrl,
     bool IsFriend,
     bool HasOutgoingPendingRequest,
-    bool HasIncomingPendingRequest);
+    bool HasIncomingPendingRequest,
+    int MutualFriendCount,
+    Guid? OutgoingRequestId,
+    Guid? IncomingRequestId);
 
 public sealed record FriendRequestResponse(
     Guid Id,
@@ -31,6 +35,7 @@ public sealed record FriendRequestResponse(
     string? SenderAvatarUrl,
     Guid ReceiverUserId,
     string ReceiverDisplayName,
+    string? ReceiverAvatarUrl,
     FriendRequestStatus Status,
     DateTime CreatedAtUtc,
     DateTime? RespondedAtUtc);

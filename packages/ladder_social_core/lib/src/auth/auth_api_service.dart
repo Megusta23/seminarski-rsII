@@ -5,6 +5,7 @@ import 'package:ladder_social_core/src/friends/friend_models.dart';
 import 'package:ladder_social_core/src/models/paged_json.dart';
 import 'package:ladder_social_core/src/models/paged_result.dart';
 import 'package:ladder_social_core/src/network/api_client.dart';
+import 'package:ladder_social_core/src/profile/own_profile_models.dart';
 import 'package:ladder_social_core/src/tasks/task_models.dart';
 
 final class AuthApiService {
@@ -109,6 +110,18 @@ final class AuthApiService {
       final Response<dynamic> response =
           await _apiClient.dio.get<dynamic>('/api/profile/me');
       return CurrentProfile.fromJson(_responseJson(response));
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<OwnProfileOverview> getOwnProfileOverview() async {
+    try {
+      final Response<dynamic> response =
+          await _apiClient.dio.get<dynamic>('/api/profile/me/overview');
+      return OwnProfileOverview.fromJson(_responseJson(response));
     } on DioException catch (error) {
       throw ApiException.from(error);
     } on FormatException catch (error) {

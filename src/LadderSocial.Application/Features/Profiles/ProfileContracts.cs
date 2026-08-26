@@ -17,6 +17,32 @@ public sealed record CurrentProfileResponse(
     DateOnly? DateOfBirth,
     IReadOnlyCollection<string> Roles);
 
+public sealed record OwnProfileHighlightedPostResponse(
+    Guid PostId,
+    Guid TaskId,
+    string TaskTitle,
+    string? Caption,
+    string CategoryName,
+    string CategoryCode,
+    Guid ProofMediaId,
+    string ProofUrl,
+    DateTime CompletedAtUtc,
+    DateTime HighlightedAtUtc);
+
+public sealed record OwnProfileOverviewResponse(
+    Guid UserId,
+    string DisplayName,
+    string? Bio,
+    string? AvatarUrl,
+    string? CityName,
+    DateTime MemberSinceUtc,
+    int VisiblePostCount,
+    int FriendCount,
+    int CompletedTaskCount,
+    int HabitCount,
+    int CurrentStreak,
+    IReadOnlyCollection<OwnProfileHighlightedPostResponse> HighlightedPosts);
+
 public sealed record UpdateProfileRequest(
     [Required, StringLength(100)] string FirstName,
     [Required, StringLength(100)] string LastName,
@@ -40,6 +66,7 @@ public sealed record ProfileHighlightCandidateResponse(
 public interface IProfileService
 {
     Task<CurrentProfileResponse> GetCurrentAsync(CancellationToken cancellationToken);
+    Task<OwnProfileOverviewResponse> GetOverviewAsync(CancellationToken cancellationToken);
     Task<CurrentProfileResponse> UpdateCurrentAsync(UpdateProfileRequest request, CancellationToken cancellationToken);
     Task<CurrentProfileResponse> UpdateAvatarAsync(UploadPayload upload, CancellationToken cancellationToken);
     Task<CurrentProfileResponse> RemoveAvatarAsync(CancellationToken cancellationToken);

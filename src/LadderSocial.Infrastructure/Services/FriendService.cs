@@ -54,12 +54,23 @@ public sealed class FriendService(
             .Select(group => new { UserId = group.Key, Count = group.Count() })
             .ToDictionaryAsync(item => item.UserId, item => item.Count, cancellationToken);
         var streaks = await GetStreaksAsync(ids, cancellationToken);
+        var currentFriendIds = dbContext.Friendships
+            .AsNoTracking()
+            .Where(item => item.UserId == userId)
+            .Select(item => item.FriendUserId);
+        var mutualFriendCounts = await dbContext.Friendships
+            .AsNoTracking()
+            .Where(item => ids.Contains(item.UserId) && currentFriendIds.Contains(item.FriendUserId))
+            .GroupBy(item => item.UserId)
+            .Select(group => new { UserId = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(item => item.UserId, item => item.Count, cancellationToken);
 
         var items = pageItems
             .Select(item => new FriendSummaryResponse(
                 item.UserId,
                 item.DisplayName,
                 item.HasAvatar ? $"/api/media/avatars/{item.UserId}" : null,
+                mutualFriendCounts.GetValueOrDefault(item.UserId),
                 counts.GetValueOrDefault(item.UserId),
                 streaks.GetValueOrDefault(item.UserId)))
             .ToArray();
@@ -72,6 +83,10 @@ public sealed class FriendService(
         CancellationToken cancellationToken)
     {
         var userId = RequireCurrentUserId();
+        var currentFriendIds = dbContext.Friendships
+            .AsNoTracking()
+            .Where(item => item.UserId == userId)
+            .Select(item => item.FriendUserId);
         var query =
             from user in dbContext.Users.AsNoTracking()
             join profile in dbContext.UserProfiles.AsNoTracking() on user.Id equals profile.UserId
@@ -89,7 +104,24 @@ public sealed class FriendService(
                 HasIncomingPendingRequest = dbContext.FriendRequests.Any(friendRequest =>
                     friendRequest.SenderUserId == user.Id &&
                     friendRequest.ReceiverUserId == userId &&
-                    friendRequest.Status == FriendRequestStatus.Pending)
+                    friendRequest.Status == FriendRequestStatus.Pending),
+                OutgoingRequestId = dbContext.FriendRequests
+                    .Where(friendRequest =>
+                        friendRequest.SenderUserId == userId &&
+                        friendRequest.ReceiverUserId == user.Id &&
+                        friendRequest.Status == FriendRequestStatus.Pending)
+                    .Select(friendRequest => (Guid?)friendRequest.Id)
+                    .FirstOrDefault(),
+                IncomingRequestId = dbContext.FriendRequests
+                    .Where(friendRequest =>
+                        friendRequest.SenderUserId == user.Id &&
+                        friendRequest.ReceiverUserId == userId &&
+                        friendRequest.Status == FriendRequestStatus.Pending)
+                    .Select(friendRequest => (Guid?)friendRequest.Id)
+                    .FirstOrDefault(),
+                MutualFriendCount = dbContext.Friendships.Count(friendship =>
+                    friendship.UserId == user.Id &&
+                    currentFriendIds.Contains(friendship.FriendUserId))
             };
 
         if (!string.IsNullOrWhiteSpace(request.Search))
@@ -121,7 +153,10 @@ public sealed class FriendService(
                 item.HasAvatar,
                 item.IsFriend,
                 item.HasOutgoingPendingRequest,
-                item.HasIncomingPendingRequest
+                item.HasIncomingPendingRequest,
+                item.MutualFriendCount,
+                item.OutgoingRequestId,
+                item.IncomingRequestId
             })
             .ToArrayAsync(cancellationToken);
         var items = rows
@@ -132,7 +167,10 @@ public sealed class FriendService(
                 item.HasAvatar ? $"/api/media/avatars/{item.Id}" : null,
                 item.IsFriend,
                 item.HasOutgoingPendingRequest,
-                item.HasIncomingPendingRequest))
+                item.HasIncomingPendingRequest,
+                item.MutualFriendCount,
+                item.OutgoingRequestId,
+                item.IncomingRequestId))
             .ToArray();
 
         return new PagedResult<UserSearchResponse>(items, request.Page, request.PageSize, totalCount);
@@ -485,6 +523,7 @@ public sealed class FriendService(
         var query = BuildRequestQuery(
             currentUserId: userId,
             incoming: incoming,
+            pendingOnly: true,
             search: request.Search);
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -509,6 +548,7 @@ public sealed class FriendService(
         Guid? requestId = null,
         Guid? currentUserId = null,
         bool incoming = true,
+        bool pendingOnly = false,
         string? search = null)
     {
         var query =
@@ -516,6 +556,7 @@ public sealed class FriendService(
             join sender in dbContext.Users.AsNoTracking() on request.SenderUserId equals sender.Id
             join senderProfile in dbContext.UserProfiles.AsNoTracking() on sender.Id equals senderProfile.UserId
             join receiver in dbContext.Users.AsNoTracking() on request.ReceiverUserId equals receiver.Id
+            join receiverProfile in dbContext.UserProfiles.AsNoTracking() on receiver.Id equals receiverProfile.UserId
             select new
             {
                 RequestId = request.Id,
@@ -524,6 +565,7 @@ public sealed class FriendService(
                 SenderHasAvatar = senderProfile.AvatarStorageKey != null,
                 request.ReceiverUserId,
                 ReceiverDisplayName = receiver.DisplayName,
+                ReceiverHasAvatar = receiverProfile.AvatarStorageKey != null,
                 request.Status,
                 request.CreatedAtUtc,
                 request.RespondedAtUtc
@@ -540,6 +582,11 @@ public sealed class FriendService(
             query = incoming
                 ? query.Where(item => item.ReceiverUserId == userId)
                 : query.Where(item => item.SenderUserId == userId);
+        }
+
+        if (pendingOnly)
+        {
+            query = query.Where(item => item.Status == FriendRequestStatus.Pending);
         }
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -559,6 +606,7 @@ public sealed class FriendService(
                 item.SenderHasAvatar,
                 item.ReceiverUserId,
                 item.ReceiverDisplayName,
+                item.ReceiverHasAvatar,
                 item.Status,
                 item.CreatedAtUtc,
                 item.RespondedAtUtc));
@@ -632,6 +680,7 @@ public sealed class FriendService(
             item.SenderHasAvatar ? $"/api/media/avatars/{item.SenderUserId}" : null,
             item.ReceiverUserId,
             item.ReceiverDisplayName,
+            item.ReceiverHasAvatar ? $"/api/media/avatars/{item.ReceiverUserId}" : null,
             item.Status,
             item.CreatedAtUtc,
             item.RespondedAtUtc);
@@ -643,6 +692,7 @@ public sealed class FriendService(
         bool SenderHasAvatar,
         Guid ReceiverUserId,
         string ReceiverDisplayName,
+        bool ReceiverHasAvatar,
         FriendRequestStatus Status,
         DateTime CreatedAtUtc,
         DateTime? RespondedAtUtc);

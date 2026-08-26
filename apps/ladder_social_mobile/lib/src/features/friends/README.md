@@ -1,14 +1,18 @@
 # Friends feature
 
-This module contains user search, requests, accepted friends, recommendations and Friend Profile V2.
+This module contains Friends V2, people search, friend requests, accepted friends, graph-based recommendations and Friend Profile V2.
 
-Friend Profile V2 is intentionally friend-only and presents:
+Friends V2 provides:
 
-- avatar, biography and the mock-up-aligned post/friend overview;
-- shared-post and accepted-friend counts;
-- mutual-friend preview;
-- current streak, total completions and active recurring tasks/habits;
-- up to six protected highlighted proof posts;
-- the existing friendship and direct-message actions.
+- polished Friends, Requests and Discover sections;
+- immediate UI removal of accepted, declined and cancelled requests;
+- immediate insertion of newly accepted friends;
+- per-card processing state that prevents double actions;
+- relationship-aware people search;
+- friend productivity summaries, profile and message actions;
+- graph-based suggestions with backend explanations;
+- pull-to-refresh and clear loading, empty and error states.
 
-The profile screen never calculates social statistics locally. It consumes the typed backend aggregate and reuses the authorized media and chat repositories.
+Friend Profile V2 remains friend-only and presents avatar, biography, social counts, mutual friends, streak, task completion statistics, habits and secure highlighted proof posts.
+
+All relationship mutations remain server-authorized. Flutter updates local state for responsiveness, then reloads the authoritative API data.

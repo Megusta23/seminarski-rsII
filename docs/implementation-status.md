@@ -7,7 +7,7 @@
 - Profile: Instagram-style Own Profile V2, current profile editing, avatar upload/removal, social statistics and secure highlighted proof posts.
 - Reference data: client reads plus complete admin CRUD for countries, cities, categories and recurrence types.
 - Tasks: CRUD, filtering, pagination, ownership, recurrence occurrences, completion history, proof images and document-aligned To-do V2 sections/state controls.
-- Social graph: friend requests, accepted friendships, graph-based recommendations and Friend Profile V2 with mutual friends, server-calculated statistics and secure highlighted proof posts.
+- Social graph: Friends V2 request management, relationship-aware people search, accepted friendships, graph-based recommendations and Friend Profile V2 with mutual friends, server-calculated statistics and secure highlighted proof posts.
 - Feed: shared unfinished and completed friend tasks, proof/no-proof and unseen/seen states, date filtering, server-calculated friend progress, stable pagination and protected proof access.
 - Ranking: daily and weekly leaderboard.
 - Notifications: persisted read/unread notifications, summary, mark-read actions, polling and SignalR server hub.

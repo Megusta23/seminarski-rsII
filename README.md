@@ -14,7 +14,7 @@ The current implementation includes:
 - task CRUD, ownership checks, filtering, sorting, pagination and master-detail mobile UI;
 - one-time and recurring task completions with duplicate-occurrence protection;
 - optional/required proof images validated by MIME type, magic bytes and file-size limits;
-- friends, friend requests, document-aligned friend profiles with mutual friends, streak/completion/habit statistics, secure highlighted proof posts and graph-based friend recommendations;
+- Friends V2 with immediate request synchronization, relationship-aware people search, accepted-friend productivity cards, document-aligned friend profiles and graph-based recommendations;
 - Feed V2 with shared unfinished/completed tasks, proof/view states, friend progress, date filtering and stable pagination;
 - daily and weekly leaderboards calculated from server-side completion data;
 - read/unread system notifications with automatic polling and SignalR server support;
@@ -185,12 +185,13 @@ Run regression suites in this order:
 ./scripts/test-friend-profile-v2.sh
 ./scripts/test-own-profile-v2.sh
 ./scripts/test-leaderboard-v2.sh
+./scripts/test-friends-v2.sh
 ./scripts/test-social-features.sh
 ./scripts/test-admin-reports.sh
 ./scripts/verify-source.sh
 ```
 
-The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, the three To-do V2 sections and four task states, the four Feed V2 states, profile statistics and highlights, document-aligned daily/weekly leaderboard behavior, progress and proof privacy, recommendations, chat membership, moderation and PDF output.
+The smoke tests create unique test records and verify authorization, ownership, pagination, validation, recurrence, files, the three To-do V2 sections and four task states, the four Feed V2 states, profile statistics and highlights, document-aligned daily/weekly leaderboard behavior, Friends V2 request synchronization and relationship-aware search, progress and proof privacy, recommendations, chat membership, moderation and PDF output.
 
 `verify-source.sh` runs:
 
@@ -230,6 +231,7 @@ All private routes require a validated JWT. Admin routes require the `Admin` rol
 - [`docs/application-testing-guide.md`](docs/application-testing-guide.md)
 - [`docs/feed-v2.md`](docs/feed-v2.md)
 - [`docs/friend-profile-v2.md`](docs/friend-profile-v2.md)
+- [`docs/friends-v2.md`](docs/friends-v2.md)
 - [`docs/leaderboard-v2.md`](docs/leaderboard-v2.md)
 - [`docs/todo-v2.md`](docs/todo-v2.md)
 - [`docs/implementation-status.md`](docs/implementation-status.md)

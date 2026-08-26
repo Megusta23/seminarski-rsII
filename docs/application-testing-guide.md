@@ -20,7 +20,12 @@ Run in this order so a failure is easy to isolate:
 ./scripts/test-profile.sh
 ./scripts/test-reference-data.sh
 ./scripts/test-tasks.sh
+./scripts/test-todo-v2.sh
 ./scripts/test-feed-v2.sh
+./scripts/test-friend-profile-v2.sh
+./scripts/test-own-profile-v2.sh
+./scripts/test-leaderboard-v2.sh
+./scripts/test-friends-v2.sh
 ./scripts/test-social-features.sh
 ./scripts/test-admin-reports.sh
 ./scripts/verify-source.sh
@@ -32,15 +37,16 @@ Run in this order so a failure is easy to isolate:
 2. Edit profile and avatar.
 3. Create one-time, daily and proof-required tasks.
 4. Complete tasks and verify completion history.
-5. Search users, send and accept friend requests using two accounts.
-6. On the feed, verify shared unfinished, completed-without-proof and completed-with-proof states.
-7. Open a new proof image and confirm the New badge disappears after returning.
-8. Verify friend progress, date selection, search, pull-to-refresh and pagination.
-9. Remove the friendship and confirm feed/proof access disappears.
-10. Verify daily/weekly leaderboard position.
-11. Open notifications and mark them read.
-12. Start a conversation, send text and image messages.
-13. Verify session restoration and logout.
+5. Open Friends V2, send and accept friend requests using two accounts, and confirm the accepted request disappears immediately.
+6. Confirm the new friend appears in Friends, Requests counts update, and Discover/search reflect the new relationship.
+7. On the feed, verify shared unfinished, completed-without-proof and completed-with-proof states.
+8. Open a new proof image and confirm the New badge disappears after returning.
+9. Verify friend progress, date selection, search, pull-to-refresh and pagination.
+10. Remove the friendship and confirm feed/proof access disappears.
+11. Verify daily/weekly leaderboard position.
+12. Open notifications and mark them read.
+13. Start a conversation, send text and image messages.
+14. Verify session restoration and logout.
 
 ## 4. Manual admin flow
 
@@ -85,3 +91,13 @@ Run:
 ```
 
 The test creates disposable users, a mutual-friend graph, recurring and completed tasks, proof posts and profile highlights. It verifies friend-only access, statistics, owner-only highlight management, the six-item limit, moderation behavior, proof authorization and friendship-removal revocation.
+
+## Friends V2
+
+Run:
+
+```bash
+./scripts/test-friends-v2.sh
+```
+
+The test creates disposable users and verifies incoming/sent request visibility, relationship-aware search request IDs, acceptance, immediate pending-list removal, new-friend visibility, duplicate-action protection, decline, cancel, self-request prevention and friendship removal.

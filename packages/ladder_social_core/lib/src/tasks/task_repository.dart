@@ -9,6 +9,8 @@ final class TaskRepository {
   Future<PagedResult<TaskListItem>> getTasks(TaskQuery query) =>
       _api.getTasks(query);
   Future<TaskDetail> getTask(String id) => _api.getTask(id);
+  Future<CompletionDateOptions> getCompletionDateOptions(String id) =>
+      _api.getCompletionDateOptions(id);
   Future<TaskDetail> createTask(TaskDraft draft) => _api.createTask(draft);
   Future<TaskDetail> updateTask(String id, TaskDraft draft) =>
       _api.updateTask(id, draft);

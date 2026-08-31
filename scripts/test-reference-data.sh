@@ -63,16 +63,36 @@ status="$(http_request POST "${BASE_URL}/api/admin/reference-data/task-categorie
 expect_status "$status" 201 "administrator creates task category" "${TEMP_DIR}/category.json"
 CATEGORY_ID="$(json_get "${TEMP_DIR}/category.json" id)"
 
-recurrence_code="smoke-recurrence-${suffix}"
-recurrence_body="$(printf '{"name":%s,"code":%s,"sortOrder":900}' "$(json_string "Smoke Recurrence ${suffix}")" "$(json_string "$recurrence_code")")"
-status="$(http_request POST "${BASE_URL}/api/admin/reference-data/recurrence-types" "${TEMP_DIR}/recurrence.json" "$recurrence_body" "$ADMIN_ACCESS")"
-expect_status "$status" 201 "administrator creates recurrence type" "${TEMP_DIR}/recurrence.json"
-RECURRENCE_ID="$(json_get "${TEMP_DIR}/recurrence.json" id)"
+status="$(http_request GET "${BASE_URL}/api/admin/reference-data/recurrence-types?page=1&pageSize=100" "${TEMP_DIR}/recurrences.json" '' "$ADMIN_ACCESS")"
+expect_status "$status" 200 "administrator lists supported recurrence types" "${TEMP_DIR}/recurrences.json"
+python3 - "${TEMP_DIR}/recurrences.json" "${TEMP_DIR}/monthly-recurrence.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+for item in payload["items"]:
+    if str(item.get("code", "")).lower() == "monthly":
+        with open(sys.argv[2], "w", encoding="utf-8") as output:
+            json.dump(item, output)
+        break
+else:
+    raise SystemExit("The seeded monthly recurrence type was not found")
+PY
+RECURRENCE_ID="$(json_get "${TEMP_DIR}/monthly-recurrence.json" id)"
+RECURRENCE_NAME="$(json_get "${TEMP_DIR}/monthly-recurrence.json" name)"
+RECURRENCE_ORDER="$(json_get "${TEMP_DIR}/monthly-recurrence.json" sortOrder)"
+RECURRENCE_ACTIVE="$(json_get "${TEMP_DIR}/monthly-recurrence.json" isActive)"
+recurrence_update="$(printf '{"name":%s,"code":"monthly","isActive":%s,"sortOrder":%s}' \
+  "$(json_string "${RECURRENCE_NAME} ${suffix}")" "$RECURRENCE_ACTIVE" "$RECURRENCE_ORDER")"
+status="$(http_request PUT "${BASE_URL}/api/admin/reference-data/recurrence-types/${RECURRENCE_ID}" "${TEMP_DIR}/recurrence-updated.json" "$recurrence_update" "$ADMIN_ACCESS")"
+expect_status "$status" 200 "administrator updates recurrence display data without changing its behavior code" "${TEMP_DIR}/recurrence-updated.json"
+recurrence_restore="$(printf '{"name":%s,"code":"monthly","isActive":%s,"sortOrder":%s}' \
+  "$(json_string "$RECURRENCE_NAME")" "$RECURRENCE_ACTIVE" "$RECURRENCE_ORDER")"
+status="$(http_request PUT "${BASE_URL}/api/admin/reference-data/recurrence-types/${RECURRENCE_ID}" "${TEMP_DIR}/recurrence-restored.json" "$recurrence_restore" "$ADMIN_ACCESS")"
+expect_status "$status" 200 "administrator restores recurrence display data" "${TEMP_DIR}/recurrence-restored.json"
 
 for resource_id in \
   "cities:${CITY_ID}" \
   "task-categories:${CATEGORY_ID}" \
-  "recurrence-types:${RECURRENCE_ID}" \
   "countries:${COUNTRY_ID}"; do
   resource="${resource_id%%:*}"
   id="${resource_id#*:}"

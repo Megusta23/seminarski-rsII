@@ -14,6 +14,7 @@ export 'src/friends/friend_repository.dart';
 export 'src/leaderboard/leaderboard_models.dart';
 export 'src/leaderboard/leaderboard_repository.dart';
 export 'src/media/media_repository.dart';
+export 'src/models/business_date.dart';
 export 'src/models/paged_result.dart';
 export 'src/network/api_client.dart';
 export 'src/notifications/notification_models.dart';

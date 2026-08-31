@@ -119,12 +119,23 @@ final class _TaskDetailsScreenState extends ConsumerState<TaskDetailsScreen> {
                   ),
                   PopupMenuButton<String>(
                     onSelected: (String value) {
-                      if (value == 'edit') _edit(task);
-                      if (value == 'delete') _delete(task);
+                      if (value == 'edit') {
+                        _edit(task);
+                      }
+                      if (value == 'delete') {
+                        _delete(task);
+                      }
                     },
-                    itemBuilder: (_) => const <PopupMenuEntry<String>>[
-                      PopupMenuItem(value: 'edit', child: Text('Edit')),
-                      PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    itemBuilder: (_) => <PopupMenuEntry<String>>[
+                      if (task.canEdit)
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Text('Edit'),
+                        ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete'),
+                      ),
                     ],
                   ),
                 ],
@@ -165,9 +176,7 @@ final class _TaskDetailsScreenState extends ConsumerState<TaskDetailsScreen> {
               ),
               const SizedBox(height: 18),
               FilledButton.icon(
-                onPressed: task.status == TaskStatus.active
-                    ? () => _complete(task)
-                    : null,
+                onPressed: task.canComplete ? () => _complete(task) : null,
                 icon: const Icon(Icons.check_circle_outline),
                 label: const Text('Complete task'),
               ),

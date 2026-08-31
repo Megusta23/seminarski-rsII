@@ -38,8 +38,7 @@ DateTime? nullableDateTime(Object? value) {
 }
 
 String dateOnlyString(DateTime value) {
-  final DateTime local = value.toLocal();
-  final String month = local.month.toString().padLeft(2, '0');
-  final String day = local.day.toString().padLeft(2, '0');
-  return '${local.year}-$month-$day';
+  final String month = value.month.toString().padLeft(2, '0');
+  final String day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
 }

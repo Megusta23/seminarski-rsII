@@ -25,6 +25,12 @@ public sealed class TasksController(ITaskService taskService) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await taskService.GetMyTaskAsync(id, cancellationToken));
 
+    [HttpGet("{id:guid}/completion-date-options")]
+    public async Task<ActionResult<CompletionDateOptionsResponse>> GetCompletionDateOptions(
+        Guid id,
+        CancellationToken cancellationToken) =>
+        Ok(await taskService.GetCompletionDateOptionsAsync(id, cancellationToken));
+
     [HttpPost]
     public async Task<ActionResult<TaskDetailResponse>> Create(
         [FromBody] CreateTaskRequest request,

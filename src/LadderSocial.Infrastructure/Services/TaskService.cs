@@ -2,6 +2,7 @@ using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Common.Models;
 using LadderSocial.Application.Features.Tasks;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Domain.Enums;
 using LadderSocial.Infrastructure.Persistence;
@@ -14,29 +15,47 @@ public sealed class TaskService(
     ICurrentUserService currentUserService,
     IDateTimeProvider dateTimeProvider,
     IFileStorageService fileStorageService,
-    IRealtimeNotifier realtimeNotifier) : ITaskService
+    IRealtimeNotifier realtimeNotifier,
+    IRecurrenceRuleService recurrenceRuleService,
+    ITaskStateMachine taskStateMachine) : ITaskService
 {
     public async Task<PagedResult<TaskListItemResponse>> GetMyTasksAsync(
         TaskListRequest request,
         CancellationToken cancellationToken)
     {
         var userId = RequireCurrentUserId();
-        var today = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        if (request.Status.HasValue)
+        {
+            taskStateMachine.ValidateDefinedStatus(request.Status.Value);
+        }
+
+        var ownedTasks = dbContext.Tasks
+            .AsNoTracking()
+            .Where(item => item.OwnerUserId == userId);
+        var completableTaskIds = recurrenceRuleService.GetCompletableTaskIds(
+            ownedTasks,
+            businessDate);
 
         var query =
-            from task in dbContext.Tasks.AsNoTracking()
-            join category in dbContext.TaskCategories.AsNoTracking() on task.TaskCategoryId equals category.Id
-            join recurrence in dbContext.RecurrenceTypes.AsNoTracking() on task.RecurrenceTypeId equals recurrence.Id
-            where task.OwnerUserId == userId
+            from task in ownedTasks
+            join category in dbContext.TaskCategories.AsNoTracking()
+                on task.TaskCategoryId equals category.Id
+            join recurrence in dbContext.RecurrenceTypes.AsNoTracking()
+                on task.RecurrenceTypeId equals recurrence.Id
+            let isCompletedForToday = dbContext.TaskCompletions.Any(completion =>
+                completion.TaskItemId == task.Id &&
+                completion.UserId == userId &&
+                completion.OccurrenceDate == businessDate)
             select new
             {
                 Task = task,
                 Category = category,
                 Recurrence = recurrence,
-                IsCompletedForToday = dbContext.TaskCompletions.Any(completion =>
-                    completion.TaskItemId == task.Id &&
-                    completion.UserId == userId &&
-                    completion.OccurrenceDate == today)
+                IsCompletedForToday = isCompletedForToday,
+                CanCompleteForToday = task.Status == TaskItemStatus.Active &&
+                    completableTaskIds.Contains(task.Id) &&
+                    !isCompletedForToday
             };
 
         if (!string.IsNullOrWhiteSpace(request.Search))
@@ -100,6 +119,8 @@ public sealed class TaskService(
                 item.Task.RequiresProofImage,
                 item.Task.ShareWithFriends,
                 item.IsCompletedForToday,
+                item.CanCompleteForToday,
+                businessDate,
                 item.Task.CreatedAtUtc))
             .ToArrayAsync(cancellationToken);
 
@@ -111,8 +132,10 @@ public sealed class TaskService(
         var userId = RequireCurrentUserId();
         var task = await (
                 from item in dbContext.Tasks.AsNoTracking()
-                join category in dbContext.TaskCategories.AsNoTracking() on item.TaskCategoryId equals category.Id
-                join recurrence in dbContext.RecurrenceTypes.AsNoTracking() on item.RecurrenceTypeId equals recurrence.Id
+                join category in dbContext.TaskCategories.AsNoTracking()
+                    on item.TaskCategoryId equals category.Id
+                join recurrence in dbContext.RecurrenceTypes.AsNoTracking()
+                    on item.RecurrenceTypeId equals recurrence.Id
                 where item.Id == id && item.OwnerUserId == userId
                 select new
                 {
@@ -125,12 +148,18 @@ public sealed class TaskService(
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("The requested task was not found.");
 
+        taskStateMachine.ValidateDefinedStatus(task.Item.Status);
+        recurrenceRuleService.NormalizeSupportedCode(
+            task.RecurrenceCode,
+            "recurrenceTypeId");
+
         var recentRows = await GetCompletionQuery(task.Item.Id, userId)
             .Take(10)
             .ToArrayAsync(cancellationToken);
         var recentCompletions = recentRows
             .Select(item => MapCompletion(item.Completion, item.ProofMediaId, item.PostId))
             .ToArray();
+        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
 
         return new TaskDetailResponse(
             task.Item.Id,
@@ -148,7 +177,58 @@ public sealed class TaskService(
             task.Item.ShareWithFriends,
             task.Item.CreatedAtUtc,
             task.Item.UpdatedAtUtc,
+            businessDate,
+            taskStateMachine.CanEdit(task.Item.Status),
+            taskStateMachine.CanComplete(task.Item.Status),
+            taskStateMachine.GetAllowedEditStatuses(task.Item.Status),
             recentCompletions);
+    }
+
+    public async Task<CompletionDateOptionsResponse> GetCompletionDateOptionsAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentUserId();
+        var task = await (
+                from item in dbContext.Tasks.AsNoTracking()
+                join recurrence in dbContext.RecurrenceTypes.AsNoTracking()
+                    on item.RecurrenceTypeId equals recurrence.Id
+                where item.Id == id && item.OwnerUserId == userId
+                select new
+                {
+                    Item = item,
+                    RecurrenceCode = recurrence.Code
+                })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("The requested task was not found.");
+
+        taskStateMachine.ValidateDefinedStatus(task.Item.Status);
+        if (!taskStateMachine.CanComplete(task.Item.Status))
+        {
+            throw new BusinessException("Only active tasks can have completion dates selected.");
+        }
+
+        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var completedDateValues = await dbContext.TaskCompletions
+            .AsNoTracking()
+            .Where(item => item.TaskItemId == id && item.UserId == userId)
+            .Select(item => item.OccurrenceDate)
+            .ToArrayAsync(cancellationToken);
+        var completedDates = completedDateValues.ToHashSet();
+        var normalizedCode = recurrenceRuleService.NormalizeSupportedCode(
+            task.RecurrenceCode,
+            "recurrenceTypeId");
+        var allowedDates = recurrenceRuleService.GetAllowedCompletionDates(
+            task.Item,
+            normalizedCode,
+            businessDate,
+            completedDates);
+
+        return new CompletionDateOptionsResponse(
+            businessDate,
+            recurrenceRuleService.GetAnchorDate(task.Item, normalizedCode),
+            normalizedCode,
+            allowedDates);
     }
 
     public async Task<TaskDetailResponse> CreateAsync(
@@ -188,14 +268,15 @@ public sealed class TaskService(
         CancellationToken cancellationToken)
     {
         var userId = RequireCurrentUserId();
+        taskStateMachine.ValidateDefinedStatus(request.Status);
+
         var entity = await dbContext.Tasks
-            .SingleOrDefaultAsync(item => item.Id == id && item.OwnerUserId == userId, cancellationToken)
+            .SingleOrDefaultAsync(
+                item => item.Id == id && item.OwnerUserId == userId,
+                cancellationToken)
             ?? throw new NotFoundException("The requested task was not found.");
 
-        if (entity.Status == TaskItemStatus.Archived)
-        {
-            throw new BusinessException("An archived task cannot be edited.");
-        }
+        taskStateMachine.EnsureEditTransition(entity.Status, request.Status);
 
         var normalized = await ValidateAndNormalizeAsync(
             request.Title,
@@ -204,16 +285,6 @@ public sealed class TaskService(
             request.RecurrenceTypeId,
             request.DueAtUtc,
             cancellationToken);
-
-        if (request.Status == TaskItemStatus.Completed)
-        {
-            throw new ValidationException(
-                "Task validation failed.",
-                new Dictionary<string, string[]>
-                {
-                    ["status"] = ["Complete a task through the completion action instead of changing its status directly."]
-                });
-        }
 
         entity.Title = normalized.Title;
         entity.Description = normalized.Description;
@@ -254,7 +325,7 @@ public sealed class TaskService(
     {
         var userId = RequireCurrentUserId();
         var now = dateTimeProvider.UtcNow;
-        var today = DateOnly.FromDateTime(now);
+        var businessDate = DateOnly.FromDateTime(now);
         var task = await (
                 from item in dbContext.Tasks
                 join recurrence in dbContext.RecurrenceTypes on item.RecurrenceTypeId equals recurrence.Id
@@ -263,12 +334,20 @@ public sealed class TaskService(
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new NotFoundException("The requested task was not found.");
 
-        if (task.Item.Status != TaskItemStatus.Active)
+        taskStateMachine.ValidateDefinedStatus(task.Item.Status);
+        if (!taskStateMachine.CanComplete(task.Item.Status))
         {
             throw new BusinessException("Only active tasks can be completed.");
         }
 
-        ValidateOccurrenceDate(task.Item, task.RecurrenceCode, command.OccurrenceDate, today);
+        var normalizedRecurrenceCode = recurrenceRuleService.NormalizeSupportedCode(
+            task.RecurrenceCode,
+            "recurrenceTypeId");
+        recurrenceRuleService.ValidateCompletionDate(
+            task.Item,
+            normalizedRecurrenceCode,
+            command.OccurrenceDate,
+            businessDate);
 
         var duplicateExists = await dbContext.TaskCompletions.AnyAsync(
             completion => completion.TaskItemId == id &&
@@ -299,15 +378,12 @@ public sealed class TaskService(
                 cancellationToken);
         }
 
-        var occurrenceTime = command.OccurrenceDate == today
-            ? TimeOnly.FromDateTime(now)
-            : new TimeOnly(12, 0);
         var completion = new TaskCompletion
         {
             TaskItemId = task.Item.Id,
             UserId = userId,
             OccurrenceDate = command.OccurrenceDate,
-            CompletedAtUtc = command.OccurrenceDate.ToDateTime(occurrenceTime, DateTimeKind.Utc),
+            CompletedAtUtc = now,
             ScorePoints = 1,
             Note = string.IsNullOrWhiteSpace(command.Note) ? null : command.Note.Trim()
         };
@@ -368,7 +444,7 @@ public sealed class TaskService(
                     dbContext.Notifications.AddRange(notifications);
                 }
 
-                if (string.Equals(task.RecurrenceCode, "none", StringComparison.OrdinalIgnoreCase))
+                if (normalizedRecurrenceCode == RecurrenceCodes.None)
                 {
                     task.Item.Status = TaskItemStatus.Completed;
                 }
@@ -470,11 +546,21 @@ public sealed class TaskService(
             errors["taskCategoryId"] = ["Select an active task category."];
         }
 
-        if (!await dbContext.RecurrenceTypes.AnyAsync(
-                item => item.Id == recurrenceTypeId && item.IsActive,
-                cancellationToken))
+        var recurrenceCode = await dbContext.RecurrenceTypes
+            .AsNoTracking()
+            .Where(item => item.Id == recurrenceTypeId && item.IsActive)
+            .Select(item => item.Code)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (recurrenceCode is null)
         {
             errors["recurrenceTypeId"] = ["Select an active recurrence type."];
+        }
+        else if (!RecurrenceCodes.IsSupported(recurrenceCode))
+        {
+            errors["recurrenceTypeId"] =
+            [
+                "The selected recurrence type uses an unsupported semantic code. Ask an administrator to correct it."
+            ];
         }
 
         DateTime? normalizedDueAtUtc = null;
@@ -494,47 +580,6 @@ public sealed class TaskService(
         }
 
         return new NormalizedTaskRequest(normalizedTitle, normalizedDescription, normalizedDueAtUtc);
-    }
-
-    private static void ValidateOccurrenceDate(
-        TaskItem task,
-        string recurrenceCode,
-        DateOnly occurrenceDate,
-        DateOnly today)
-    {
-        var errors = new Dictionary<string, string[]>();
-        if (occurrenceDate > today)
-        {
-            errors["occurrenceDate"] = ["A task cannot be completed for a future date."];
-        }
-
-        var anchor = task.DueAtUtc.HasValue
-            ? DateOnly.FromDateTime(task.DueAtUtc.Value)
-            : DateOnly.FromDateTime(task.CreatedAtUtc);
-        if (occurrenceDate < DateOnly.FromDateTime(task.CreatedAtUtc))
-        {
-            errors["occurrenceDate"] = ["The occurrence date cannot be earlier than the task creation date."];
-        }
-
-        switch (recurrenceCode.Trim().ToLowerInvariant())
-        {
-            case "none":
-                break;
-            case "daily":
-                break;
-            case "weekly" when occurrenceDate >= anchor &&
-                (occurrenceDate.DayNumber - anchor.DayNumber) % 7 != 0:
-                errors["occurrenceDate"] = ["Select a date that matches this task's weekly recurrence."];
-                break;
-            case "monthly" when occurrenceDate.Day != anchor.Day:
-                errors["occurrenceDate"] = ["Select a date that matches this task's monthly recurrence day."];
-                break;
-        }
-
-        if (errors.Count > 0)
-        {
-            throw new ValidationException("Task completion validation failed.", errors);
-        }
     }
 
     private async Task ClearHighlightsForTaskAsync(

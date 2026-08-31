@@ -541,6 +541,13 @@ final class _CityDialogState extends ConsumerState<_CityDialog> {
   }
 }
 
+const List<String> _supportedRecurrenceCodes = <String>[
+  'none',
+  'daily',
+  'weekly',
+  'monthly',
+];
+
 final class _ReferenceItemDialog extends ConsumerStatefulWidget {
   const _ReferenceItemDialog({required this.resource, required this.title, this.item});
   final String resource;
@@ -560,11 +567,26 @@ final class _ReferenceItemDialogState extends ConsumerState<_ReferenceItemDialog
   bool _saving = false;
   String? _error;
 
+  bool get _isRecurrence => widget.resource == 'recurrence-types';
+
+  String get _normalizedRecurrenceCode => _code.text.trim().toLowerCase();
+
+  bool get _hasSupportedRecurrenceCode =>
+      _supportedRecurrenceCodes.contains(_normalizedRecurrenceCode);
+
+  bool get _canSelectRecurrenceCode =>
+      _isRecurrence && (widget.item == null || !_hasSupportedRecurrenceCode);
+
   @override
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.item?.name);
-    _code = TextEditingController(text: widget.item?.code);
+    final String? itemCode = widget.item?.code;
+    _code = TextEditingController(
+      text: widget.resource == 'recurrence-types'
+          ? (itemCode?.trim().toLowerCase() ?? 'none')
+          : itemCode,
+    );
     _order = TextEditingController(text: '${widget.item?.sortOrder ?? 0}');
     _active = widget.item?.isActive ?? true;
   }
@@ -616,7 +638,44 @@ final class _ReferenceItemDialogState extends ConsumerState<_ReferenceItemDialog
               children: <Widget>[
                 TextFormField(controller: _name, decoration: const InputDecoration(labelText: 'Name'), validator: _required),
                 const SizedBox(height: 12),
-                TextFormField(controller: _code, decoration: const InputDecoration(labelText: 'Code'), maxLength: 50, validator: _required),
+                if (_isRecurrence)
+                  DropdownButtonFormField<String>(
+                    initialValue:
+                        _hasSupportedRecurrenceCode ? _normalizedRecurrenceCode : null,
+                    decoration: InputDecoration(
+                      labelText: 'Behavior code',
+                      helperText: widget.item == null
+                          ? 'Select one of the recurrence rules supported by the application.'
+                          : _hasSupportedRecurrenceCode
+                              ? 'The behavior code is immutable; edit only the display name, order or active state.'
+                              : 'This legacy code is unsupported. Select a supported replacement before saving.',
+                    ),
+                    items: _supportedRecurrenceCodes
+                        .map(
+                          (String code) => DropdownMenuItem<String>(
+                            value: code,
+                            child: Text(code),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: !_canSelectRecurrenceCode || _saving
+                        ? null
+                        : (String? value) {
+                            if (value != null) {
+                              setState(() => _code.text = value);
+                            }
+                          },
+                    validator: (String? value) => value == null
+                        ? 'Select a supported recurrence behavior.'
+                        : null,
+                  )
+                else
+                  TextFormField(
+                    controller: _code,
+                    decoration: const InputDecoration(labelText: 'Code'),
+                    maxLength: 50,
+                    validator: _required,
+                  ),
                 TextFormField(controller: _order, decoration: const InputDecoration(labelText: 'Sort order'), keyboardType: TextInputType.number, validator: _integer),
                 if (widget.item != null)
                   SwitchListTile(value: _active, onChanged: (bool value) => setState(() => _active = value), title: const Text('Active')),

@@ -18,11 +18,25 @@ final class CompleteTaskScreen extends ConsumerStatefulWidget {
 final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
   final TextEditingController _noteController = TextEditingController();
   final TextEditingController _captionController = TextEditingController();
-  DateTime _occurrenceDate = DateTime.now();
+  CompletionDateOptions? _dateOptions;
+  DateTime? _occurrenceDate;
   ImageUpload? _proof;
   Uint8List? _preview;
+  bool _dateOptionsRequested = false;
+  bool _loadingDates = true;
   bool _saving = false;
+  String? _dateError;
   String? _error;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_dateOptionsRequested) {
+      return;
+    }
+    _dateOptionsRequested = true;
+    _loadDateOptions();
+  }
 
   @override
   void dispose() {
@@ -31,15 +45,65 @@ final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
     super.dispose();
   }
 
+  Future<void> _loadDateOptions() async {
+    if (mounted) {
+      setState(() {
+        _loadingDates = true;
+        _dateError = null;
+      });
+    }
+
+    try {
+      final CompletionDateOptions options = await ref
+          .read(taskRepositoryProvider)
+          .getCompletionDateOptions(widget.task.id);
+      if (!mounted) {
+        return;
+      }
+
+      final List<DateTime> dates = options.allowedDates.toList(growable: false)
+        ..sort();
+      final DateTime? selected = dates.isEmpty
+          ? null
+          : dates.any(
+              (DateTime date) => _isSameDate(date, options.businessDate),
+            )
+              ? options.businessDate
+              : dates.last;
+      setState(() {
+        _dateOptions = CompletionDateOptions(
+          businessDate: options.businessDate,
+          recurrenceAnchorDate: options.recurrenceAnchorDate,
+          recurrenceCode: options.recurrenceCode,
+          allowedDates: dates,
+        );
+        _occurrenceDate = selected;
+        _loadingDates = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loadingDates = false;
+        _dateError = ApiException.from(error).message;
+      });
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     final XFile? file = await ImagePicker().pickImage(
       source: source,
       imageQuality: 88,
       maxWidth: 1920,
     );
-    if (file == null) return;
+    if (file == null) {
+      return;
+    }
     final Uint8List bytes = await file.readAsBytes();
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _preview = bytes;
       _proof = ImageUpload(
@@ -71,24 +135,47 @@ final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
         ),
       ),
     );
-    if (source != null) await _pickImage(source);
+    if (source != null) {
+      await _pickImage(source);
+    }
   }
 
   Future<void> _pickDate() async {
+    final CompletionDateOptions? options = _dateOptions;
+    final DateTime? current = _occurrenceDate;
+    if (options == null || current == null || options.allowedDates.isEmpty) {
+      return;
+    }
+
+    final Set<String> allowed = options.allowedDates
+        .map(_dateKey)
+        .toSet();
     final DateTime? value = await showDatePicker(
       context: context,
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      initialDate: _occurrenceDate,
+      firstDate: options.allowedDates.first,
+      lastDate: options.businessDate,
+      initialDate: current,
+      selectableDayPredicate: (DateTime date) => allowed.contains(_dateKey(date)),
+      helpText: 'Select a valid task occurrence',
     );
-    if (value != null) setState(() => _occurrenceDate = value);
+    if (value != null && mounted) {
+      setState(() => _occurrenceDate = DateUtils.dateOnly(value));
+    }
   }
 
   Future<void> _complete() async {
+    final DateTime? occurrenceDate = _occurrenceDate;
+    if (occurrenceDate == null) {
+      setState(() {
+        _error = 'There is no valid, unfinished occurrence available for this task.';
+      });
+      return;
+    }
     if (widget.task.requiresProofImage && _proof == null) {
       setState(() => _error = 'This task requires a proof image.');
       return;
     }
+
     setState(() {
       _saving = true;
       _error = null;
@@ -97,23 +184,46 @@ final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
       final TaskCompletionItem completion =
           await ref.read(taskRepositoryProvider).completeTask(
                 taskId: widget.task.id,
-                occurrenceDate: _occurrenceDate,
+                occurrenceDate: occurrenceDate,
                 note: _noteController.text,
                 caption: _captionController.text,
                 proof: _proof,
               );
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pop<TaskCompletionItem>(completion);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() => _error = ApiException.from(error).message);
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingDates) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Complete task')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_dateError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Complete task')),
+        body: AppErrorView(error: _dateError!, onRetry: _loadDateOptions),
+      );
+    }
+
+    final CompletionDateOptions options = _dateOptions!;
+    final bool hasAllowedDate = _occurrenceDate != null;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Complete task')),
       body: ListView(
@@ -127,12 +237,31 @@ final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.today_outlined),
             title: const Text('Occurrence date'),
-            subtitle: Text(formatDate(_occurrenceDate)),
+            subtitle: Text(
+              hasAllowedDate
+                  ? '${formatDate(_occurrenceDate!)} • UTC business date'
+                  : 'No unfinished occurrence is available.',
+            ),
             trailing: IconButton(
-              onPressed: _pickDate,
+              onPressed: hasAllowedDate && !_saving ? _pickDate : null,
+              tooltip: 'Choose a valid occurrence date',
               icon: const Icon(Icons.edit_calendar_outlined),
             ),
           ),
+          if (!hasAllowedDate)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'This task has no valid unfinished dates between its recurrence anchor '
+                '(${formatDate(options.recurrenceAnchorDate)}) and the current UTC business date '
+                '(${formatDate(options.businessDate)}).',
+              ),
+            ),
+          const SizedBox(height: 8),
           TextField(
             controller: _noteController,
             maxLines: 3,
@@ -185,11 +314,14 @@ final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
           ],
           if (_error != null) ...<Widget>[
             const SizedBox(height: 12),
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ],
           const SizedBox(height: 20),
           FilledButton.icon(
-            onPressed: _saving ? null : _complete,
+            onPressed: _saving || !hasAllowedDate ? null : _complete,
             icon: _saving
                 ? const SizedBox.square(
                     dimension: 18,
@@ -202,4 +334,14 @@ final class _CompleteTaskScreenState extends ConsumerState<CompleteTaskScreen> {
       ),
     );
   }
+
+  static bool _isSameDate(DateTime left, DateTime right) =>
+      left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
+
+  static String _dateKey(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
 }

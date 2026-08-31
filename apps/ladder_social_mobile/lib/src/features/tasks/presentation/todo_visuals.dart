@@ -132,11 +132,11 @@ TodoDuePresentation? todoDuePresentation(
     return null;
   }
 
-  final DateTime localNow = now ?? DateTime.now();
-  final DateTime due = task.dueAtUtc!.toLocal();
-  final DateTime today = DateUtils.dateOnly(localNow);
-  final DateTime dueDate = DateUtils.dateOnly(due);
-  final int days = dueDate.difference(today).inDays;
+  final DateTime businessDate = now == null
+      ? calendarDate(task.businessDate)
+      : calendarDate(now);
+  final DateTime dueDate = utcCalendarDate(task.dueAtUtc!);
+  final int days = dueDate.difference(businessDate).inDays;
 
   if (days < 0) {
     return const TodoDuePresentation('Overdue', Color(0xFFB3261E));
@@ -154,7 +154,8 @@ List<TaskListItem> sortTodoTasks(
   Iterable<TaskListItem> values, {
   DateTime? now,
 }) {
-  final DateTime reference = now ?? DateTime.now();
+  final DateTime? suppliedBusinessDate =
+      now == null ? null : calendarDate(now);
   final List<TaskListItem> result = values.toList(growable: false);
   result.sort((TaskListItem left, TaskListItem right) {
     final bool leftCompleted = todoTaskIsCompleted(left);
@@ -163,10 +164,16 @@ List<TaskListItem> sortTodoTasks(
       return leftCompleted ? 1 : -1;
     }
 
-    final DateTime? leftDue = left.dueAtUtc?.toLocal();
-    final DateTime? rightDue = right.dueAtUtc?.toLocal();
-    final bool leftOverdue = leftDue != null && leftDue.isBefore(reference);
-    final bool rightOverdue = rightDue != null && rightDue.isBefore(reference);
+    final DateTime? leftDue = left.dueAtUtc;
+    final DateTime? rightDue = right.dueAtUtc;
+    final DateTime leftBusinessDate =
+        suppliedBusinessDate ?? calendarDate(left.businessDate);
+    final DateTime rightBusinessDate =
+        suppliedBusinessDate ?? calendarDate(right.businessDate);
+    final bool leftOverdue = leftDue != null &&
+        utcCalendarDate(leftDue).isBefore(leftBusinessDate);
+    final bool rightOverdue = rightDue != null &&
+        utcCalendarDate(rightDue).isBefore(rightBusinessDate);
     if (leftOverdue != rightOverdue) {
       return leftOverdue ? -1 : 1;
     }

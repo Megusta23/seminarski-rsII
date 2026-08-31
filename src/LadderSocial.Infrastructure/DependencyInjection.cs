@@ -191,6 +191,9 @@ public static class DependencyInjection
         services.AddScoped<IProfileService, ProfileService>();
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
         services.AddScoped<IAdminReferenceDataService, AdminReferenceDataService>();
+        services.AddScoped<IRecurrenceRuleService, RecurrenceRuleService>();
+        services.AddSingleton<ITaskStateMachine, TaskStateMachine>();
+        services.AddScoped<ICompletionStatisticsService, CompletionStatisticsService>();
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IFeedService, FeedService>();

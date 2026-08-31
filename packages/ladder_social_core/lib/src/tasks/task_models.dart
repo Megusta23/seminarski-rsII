@@ -28,6 +28,8 @@ final class TaskListItem {
     required this.requiresProofImage,
     required this.shareWithFriends,
     required this.isCompletedForToday,
+    required this.canCompleteForToday,
+    required this.businessDate,
     required this.createdAtUtc,
     this.dueAtUtc,
   });
@@ -44,6 +46,8 @@ final class TaskListItem {
         requiresProofImage: requiredBool(json, 'requiresProofImage'),
         shareWithFriends: requiredBool(json, 'shareWithFriends'),
         isCompletedForToday: requiredBool(json, 'isCompletedForToday'),
+        canCompleteForToday: requiredBool(json, 'canCompleteForToday'),
+        businessDate: _requiredDateOnly(json, 'businessDate'),
         createdAtUtc: requiredDateTime(json, 'createdAtUtc'),
       );
 
@@ -58,6 +62,8 @@ final class TaskListItem {
   final bool requiresProofImage;
   final bool shareWithFriends;
   final bool isCompletedForToday;
+  final bool canCompleteForToday;
+  final DateTime businessDate;
   final DateTime createdAtUtc;
 }
 
@@ -75,11 +81,10 @@ final class TaskCompletionItem {
   });
 
   factory TaskCompletionItem.fromJson(Map<String, dynamic> json) {
-    final String occurrence = requiredString(json, 'occurrenceDate');
     return TaskCompletionItem(
       id: requiredString(json, 'id'),
       taskId: requiredString(json, 'taskId'),
-      occurrenceDate: DateTime.parse(occurrence),
+      occurrenceDate: _requiredDateOnly(json, 'occurrenceDate'),
       completedAtUtc: requiredDateTime(json, 'completedAtUtc'),
       note: nullableString(json['note']),
       scorePoints: requiredInt(json, 'scorePoints'),
@@ -114,6 +119,10 @@ final class TaskDetail {
     required this.requiresProofImage,
     required this.shareWithFriends,
     required this.createdAtUtc,
+    required this.businessDate,
+    required this.canEdit,
+    required this.canComplete,
+    required this.allowedEditStatuses,
     required this.recentCompletions,
     this.description,
     this.dueAtUtc,
@@ -136,6 +145,15 @@ final class TaskDetail {
         shareWithFriends: requiredBool(json, 'shareWithFriends'),
         createdAtUtc: requiredDateTime(json, 'createdAtUtc'),
         updatedAtUtc: nullableDateTime(json['updatedAtUtc']),
+        businessDate: _requiredDateOnly(json, 'businessDate'),
+        canEdit: requiredBool(json, 'canEdit'),
+        canComplete: requiredBool(json, 'canComplete'),
+        allowedEditStatuses: List<int>.unmodifiable(
+          jsonList(
+            json['allowedEditStatuses'],
+            context: 'allowed task statuses',
+          ).map(_intValue),
+        ),
         recentCompletions: List<TaskCompletionItem>.unmodifiable(
           jsonList(json['recentCompletions'], context: 'task completions')
               .map((Object? item) => TaskCompletionItem.fromJson(
@@ -159,7 +177,41 @@ final class TaskDetail {
   final bool shareWithFriends;
   final DateTime createdAtUtc;
   final DateTime? updatedAtUtc;
+  final DateTime businessDate;
+  final bool canEdit;
+  final bool canComplete;
+  final List<int> allowedEditStatuses;
   final List<TaskCompletionItem> recentCompletions;
+}
+
+final class CompletionDateOptions {
+  const CompletionDateOptions({
+    required this.businessDate,
+    required this.recurrenceAnchorDate,
+    required this.recurrenceCode,
+    required this.allowedDates,
+  });
+
+  factory CompletionDateOptions.fromJson(Map<String, dynamic> json) =>
+      CompletionDateOptions(
+        businessDate: _requiredDateOnly(json, 'businessDate'),
+        recurrenceAnchorDate:
+            _requiredDateOnly(json, 'recurrenceAnchorDate'),
+        recurrenceCode: requiredString(json, 'recurrenceCode'),
+        allowedDates: List<DateTime>.unmodifiable(
+          jsonList(json['allowedDates'], context: 'completion dates').map(
+            (Object? value) => _parseDateOnly(
+              value,
+              fieldName: 'allowedDates',
+            ),
+          ),
+        ),
+      );
+
+  final DateTime businessDate;
+  final DateTime recurrenceAnchorDate;
+  final String recurrenceCode;
+  final List<DateTime> allowedDates;
 }
 
 final class TaskDraft {
@@ -253,4 +305,31 @@ final class ImageUpload {
   final List<int> bytes;
   final String fileName;
   final String contentType;
+}
+
+DateTime _requiredDateOnly(Map<String, dynamic> json, String key) =>
+    _parseDateOnly(json[key], fieldName: key);
+
+DateTime _parseDateOnly(Object? value, {required String fieldName}) {
+  final String text = value?.toString() ?? '';
+  final DateTime? parsed = DateTime.tryParse(text);
+  if (parsed == null) {
+    throw FormatException(
+      'Server response is missing a valid "$fieldName" date.',
+    );
+  }
+  return DateTime(parsed.year, parsed.month, parsed.day);
+}
+
+int _intValue(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  final int? parsed = int.tryParse(value?.toString() ?? '');
+  if (parsed == null) {
+    throw const FormatException(
+      'Server response contains an invalid task status.',
+    );
+  }
+  return parsed;
 }

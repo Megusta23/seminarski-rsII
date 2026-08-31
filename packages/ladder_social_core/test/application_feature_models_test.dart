@@ -19,6 +19,10 @@ void main() {
       'shareWithFriends': true,
       'createdAtUtc': '2026-08-20T12:00:00Z',
       'updatedAtUtc': null,
+      'businessDate': '2026-08-26',
+      'canEdit': true,
+      'canComplete': true,
+      'allowedEditStatuses': <int>[1, 3, 4],
       'recentCompletions': <Map<String, dynamic>>[
         <String, dynamic>{
           'id': 'completion-id',
@@ -36,8 +40,56 @@ void main() {
 
     expect(task.title, 'Finish the seminar');
     expect(task.status, TaskStatus.active);
+    expect(task.businessDate, DateTime(2026, 8, 26));
+    expect(task.canEdit, isTrue);
+    expect(task.canComplete, isTrue);
+    expect(task.allowedEditStatuses, <int>[1, 3, 4]);
     expect(task.recentCompletions.single.occurrenceDate, DateTime(2026, 8, 20));
     expect(task.recentCompletions.single.proofMediaId, 'proof-id');
+  });
+
+
+  test('task list and completion options preserve UTC business dates', () {
+    final TaskListItem item = TaskListItem.fromJson(<String, dynamic>{
+      'id': 'task-id',
+      'title': 'Weekly review',
+      'categoryName': 'Work',
+      'categoryCode': 'work',
+      'recurrenceName': 'Weekly',
+      'recurrenceCode': 'weekly',
+      'dueAtUtc': '2026-08-24T21:30:00Z',
+      'status': 1,
+      'requiresProofImage': false,
+      'shareWithFriends': true,
+      'isCompletedForToday': false,
+      'canCompleteForToday': true,
+      'businessDate': '2026-08-31',
+      'createdAtUtc': '2026-08-01T12:00:00Z',
+    });
+    final CompletionDateOptions options = CompletionDateOptions.fromJson(
+      <String, dynamic>{
+        'businessDate': '2026-08-31',
+        'recurrenceAnchorDate': '2026-08-24',
+        'recurrenceCode': 'weekly',
+        'allowedDates': <String>['2026-08-24', '2026-08-31'],
+      },
+    );
+
+    expect(item.businessDate, DateTime(2026, 8, 31));
+    expect(item.canCompleteForToday, isTrue);
+    expect(options.recurrenceAnchorDate, DateTime(2026, 8, 24));
+    expect(options.allowedDates, <DateTime>[
+      DateTime(2026, 8, 24),
+      DateTime(2026, 8, 31),
+    ]);
+    expect(
+      utcBusinessDate(DateTime.utc(2026, 9, 1, 0, 5)),
+      DateTime(2026, 9, 1),
+    );
+    expect(
+      utcCalendarDate(DateTime.parse('2026-08-31T23:30:00Z')),
+      DateTime(2026, 8, 31),
+    );
   });
 
   test('feed and recommendation models preserve social explanations', () {

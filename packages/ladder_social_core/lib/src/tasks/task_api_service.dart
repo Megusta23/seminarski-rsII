@@ -26,6 +26,21 @@ final class TaskApiService {
 
   Future<TaskDetail> getTask(String id) => _getTask('/api/tasks/$id');
 
+  Future<CompletionDateOptions> getCompletionDateOptions(String id) async {
+    try {
+      final Response<dynamic> response = await _client.dio.get<dynamic>(
+        '/api/tasks/$id/completion-date-options',
+      );
+      return CompletionDateOptions.fromJson(
+        jsonMap(response.data, context: 'completion date options'),
+      );
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
   Future<TaskDetail> createTask(TaskDraft draft) async {
     try {
       final Response<dynamic> response = await _client.dio.post<dynamic>(

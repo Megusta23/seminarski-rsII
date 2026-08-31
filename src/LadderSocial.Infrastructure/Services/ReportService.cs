@@ -1,6 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Features.Reports;
+using LadderSocial.Application.Features.Tasks;
 using LadderSocial.Infrastructure.Identity;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -11,7 +12,8 @@ namespace LadderSocial.Infrastructure.Services;
 public sealed class ReportService(
     ApplicationDbContext dbContext,
     UserManager<AppUser> userManager,
-    IDateTimeProvider dateTimeProvider) : IReportService
+    IDateTimeProvider dateTimeProvider,
+    ICompletionStatisticsService completionStatisticsService) : IReportService
 {
     public async Task<FileContentResult> GenerateActivityReportAsync(
         DateOnly fromDate,
@@ -46,8 +48,9 @@ public sealed class ReportService(
         var tasksCreated = await dbContext.Tasks.IgnoreQueryFilters().CountAsync(
             item => item.CreatedAtUtc >= start && item.CreatedAtUtc < end,
             cancellationToken);
-        var completions = await dbContext.TaskCompletions.CountAsync(
-            item => item.CompletedAtUtc >= start && item.CompletedAtUtc < end,
+        var completions = await completionStatisticsService.GetCompletionCountAsync(
+            fromDate,
+            toDate,
             cancellationToken);
         var posts = await dbContext.Posts.IgnoreQueryFilters().CountAsync(
             item => item.CreatedAtUtc >= start && item.CreatedAtUtc < end,
@@ -58,19 +61,11 @@ public sealed class ReportService(
         var messages = await dbContext.Messages.IgnoreQueryFilters().CountAsync(
             item => item.SentAtUtc >= start && item.SentAtUtc < end,
             cancellationToken);
-        var topRows = await dbContext.TaskCompletions
-            .AsNoTracking()
-            .Where(item => item.CompletedAtUtc >= start && item.CompletedAtUtc < end)
-            .GroupBy(item => item.UserId)
-            .Select(group => new
-            {
-                UserId = group.Key,
-                Count = group.Count(),
-                Score = group.Sum(item => item.ScorePoints)
-            })
-            .OrderByDescending(item => item.Score)
-            .Take(10)
-            .ToArrayAsync(cancellationToken);
+        var topRows = await completionStatisticsService.GetTopUsersAsync(
+            fromDate,
+            toDate,
+            10,
+            cancellationToken);
         var topIds = topRows.Select(item => item.UserId).ToArray();
         var names = await dbContext.Users
             .AsNoTracking()
@@ -90,7 +85,7 @@ public sealed class ReportService(
             string.Empty,
             "Top users by completion score:"
         };
-        if (topRows.Length == 0)
+        if (topRows.Count == 0)
         {
             lines.Add("No task completions were recorded in the selected period.");
         }
@@ -98,7 +93,7 @@ public sealed class ReportService(
         {
             lines.AddRange(topRows.Select((item, index) =>
                 $"{index + 1}. {names.GetValueOrDefault(item.UserId, item.UserId.ToString())} - " +
-                $"{item.Count} completions, {item.Score} points"));
+                $"{item.CompletionCount} completions, {item.Score} points"));
         }
 
         var bytes = SimplePdfDocument.Create("Ladder Social - Application Activity Report", lines);
@@ -132,7 +127,9 @@ public sealed class ReportService(
         var roles = await userManager.GetRolesAsync(user);
         var friendCount = await dbContext.Friendships.CountAsync(item => item.UserId == userId, cancellationToken);
         var taskCount = await dbContext.Tasks.CountAsync(item => item.OwnerUserId == userId, cancellationToken);
-        var completionCount = await dbContext.TaskCompletions.CountAsync(item => item.UserId == userId, cancellationToken);
+        var completionCount = await completionStatisticsService.GetTotalCompletionCountAsync(
+            userId,
+            cancellationToken);
         var postCount = await dbContext.Posts.CountAsync(item => item.AuthorUserId == userId, cancellationToken);
         var recentCompletions = await (
                 from completion in dbContext.TaskCompletions.AsNoTracking()
@@ -143,6 +140,7 @@ public sealed class ReportService(
                 select new
                 {
                     task.Title,
+                    completion.OccurrenceDate,
                     completion.CompletedAtUtc,
                     completion.ScorePoints
                 })
@@ -174,7 +172,8 @@ public sealed class ReportService(
         else
         {
             lines.AddRange(recentCompletions.Select(item =>
-                $"{item.CompletedAtUtc:yyyy-MM-dd HH:mm} - {item.Title} ({item.ScorePoints} point(s))"));
+                $"Occurrence {item.OccurrenceDate:yyyy-MM-dd}; recorded {item.CompletedAtUtc:yyyy-MM-dd HH:mm} UTC - " +
+                $"{item.Title} ({item.ScorePoints} point(s))"));
         }
 
         var bytes = SimplePdfDocument.Create("Ladder Social - User Activity Report", lines);

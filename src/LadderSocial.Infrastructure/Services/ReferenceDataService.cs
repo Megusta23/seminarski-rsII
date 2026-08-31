@@ -1,4 +1,5 @@
 using LadderSocial.Application.Features.ReferenceData;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -67,7 +68,12 @@ public sealed class ReferenceDataService(ApplicationDbContext dbContext) : IRefe
         CancellationToken cancellationToken) =>
         await dbContext.RecurrenceTypes
             .AsNoTracking()
-            .Where(type => type.IsActive)
+            .Where(type =>
+                type.IsActive &&
+                (type.Code == RecurrenceCodes.None ||
+                 type.Code == RecurrenceCodes.Daily ||
+                 type.Code == RecurrenceCodes.Weekly ||
+                 type.Code == RecurrenceCodes.Monthly))
             .OrderBy(type => type.SortOrder)
             .ThenBy(type => type.Name)
             .Select(type => new ReferenceItemResponse(

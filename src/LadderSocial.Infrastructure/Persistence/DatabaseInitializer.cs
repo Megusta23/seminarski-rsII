@@ -1,5 +1,6 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Security;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Infrastructure.Identity;
 using LadderSocial.Infrastructure.Persistence.Seed;
@@ -185,10 +186,10 @@ public sealed class DatabaseInitializer(
         if (!await dbContext.RecurrenceTypes.AnyAsync(cancellationToken))
         {
             dbContext.RecurrenceTypes.AddRange(
-                NewRecurrenceType("none", "Does not repeat", 10),
-                NewRecurrenceType("daily", "Daily", 20),
-                NewRecurrenceType("weekly", "Weekly", 30),
-                NewRecurrenceType("monthly", "Monthly", 40));
+                NewRecurrenceType(RecurrenceCodes.None, "Does not repeat", 10),
+                NewRecurrenceType(RecurrenceCodes.Daily, "Daily", 20),
+                NewRecurrenceType(RecurrenceCodes.Weekly, "Weekly", 30),
+                NewRecurrenceType(RecurrenceCodes.Monthly, "Monthly", 40));
         }
 
         if (!await dbContext.Countries.AnyAsync(cancellationToken))

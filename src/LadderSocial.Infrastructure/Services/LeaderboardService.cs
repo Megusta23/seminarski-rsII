@@ -1,6 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Features.Leaderboard;
+using LadderSocial.Application.Features.Tasks;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,8 @@ namespace LadderSocial.Infrastructure.Services;
 public sealed class LeaderboardService(
     ApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider) : ILeaderboardService
+    IDateTimeProvider dateTimeProvider,
+    ICompletionStatisticsService completionStatisticsService) : ILeaderboardService
 {
     public Task<LeaderboardResponse> GetDailyAsync(
         DateOnly? date,
@@ -53,17 +55,11 @@ public sealed class LeaderboardService(
                     HasAvatar = profile.AvatarStorageKey != null
                 })
             .ToArrayAsync(cancellationToken);
-        var scores = await dbContext.TaskCompletions
-            .AsNoTracking()
-            .Where(item => candidateIds.Contains(item.UserId) &&
-                item.OccurrenceDate >= fromDate && item.OccurrenceDate <= toDate)
-            .GroupBy(item => item.UserId)
-            .Select(group => new
-            {
-                UserId = group.Key,
-                Score = group.Sum(item => item.ScorePoints)
-            })
-            .ToDictionaryAsync(item => item.UserId, item => item.Score, cancellationToken);
+        var scores = await completionStatisticsService.GetScoresAsync(
+            candidateIds,
+            fromDate,
+            toDate,
+            cancellationToken);
         var ordered = profiles
             .Select(profile => new
             {

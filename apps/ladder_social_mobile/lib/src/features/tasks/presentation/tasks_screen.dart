@@ -111,11 +111,11 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
       return;
     }
 
-    if (!_isScheduledForToday(item)) {
+    if (!item.canCompleteForToday) {
       if (mounted) {
         showMessage(
           context,
-          'This recurring task is not scheduled for today. Open its details to select a valid occurrence date.',
+          'This task cannot be completed for the current UTC business date. Open its details to review valid occurrence dates.',
           error: true,
         );
         await _open(item);
@@ -190,7 +190,7 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
       final TaskCompletionItem completion =
           await ref.read(taskRepositoryProvider).completeTask(
                 taskId: item.id,
-                occurrenceDate: DateTime.now(),
+                occurrenceDate: item.businessDate,
               );
       if (!mounted) {
         return;
@@ -216,7 +216,10 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
     try {
       final TaskDetail task =
           await ref.read(taskRepositoryProvider).getTask(item.id);
-      final TaskCompletionItem? completion = _matchingProofCompletion(task);
+      final TaskCompletionItem? completion = _matchingProofCompletion(
+        task,
+        item.businessDate,
+      );
       if (!mounted) {
         return;
       }
@@ -243,14 +246,16 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
     }
   }
 
-  TaskCompletionItem? _matchingProofCompletion(TaskDetail task) {
-    final DateTime today = DateUtils.dateOnly(DateTime.now());
+  TaskCompletionItem? _matchingProofCompletion(
+    TaskDetail task,
+    DateTime businessDate,
+  ) {
     for (final TaskCompletionItem completion in task.recentCompletions) {
       if (completion.proofUrl == null || completion.proofUrl!.isEmpty) {
         continue;
       }
       if (task.recurrenceCode.toLowerCase() == 'none' ||
-          DateUtils.isSameDay(completion.occurrenceDate, today)) {
+          DateUtils.isSameDay(completion.occurrenceDate, businessDate)) {
         return completion;
       }
     }
@@ -363,27 +368,6 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
       ),
     );
   }
-}
-
-bool _isScheduledForToday(TaskListItem task) {
-  final String recurrence = task.recurrenceCode.trim().toLowerCase();
-  if (recurrence == 'none' || recurrence == 'daily') {
-    return true;
-  }
-
-  final DateTime now = DateTime.now();
-  final DateTime today = DateUtils.dateOnly(now);
-  final DateTime anchorValue = (task.dueAtUtc ?? task.createdAtUtc).toLocal();
-  final DateTime anchor = DateUtils.dateOnly(anchorValue);
-  if (today.isBefore(anchor)) {
-    return false;
-  }
-
-  return switch (recurrence) {
-    'weekly' => today.difference(anchor).inDays % 7 == 0,
-    'monthly' => today.day == anchor.day,
-    _ => true,
-  };
 }
 
 final class _TodoLoadingView extends StatelessWidget {

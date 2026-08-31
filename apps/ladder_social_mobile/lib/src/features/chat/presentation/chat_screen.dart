@@ -23,6 +23,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   List<ChatMessage> _messages = const <ChatMessage>[];
   bool _loading = true;
   bool _sending = false;
+  bool _refreshing = false;
+  late bool _canSendMessages;
   String? _error;
   ImageUpload? _attachment;
   Uint8List? _attachmentPreview;
@@ -30,8 +32,12 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _canSendMessages = widget.conversation.canSendMessages;
     _loadMessages();
-    _timer = Timer.periodic(const Duration(seconds: 4), (_) => _loadMessages(silent: true));
+    _timer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) => _loadMessages(silent: true),
+    );
   }
 
   @override
@@ -43,14 +49,31 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _loadMessages({bool silent = false}) async {
-    if (!silent && mounted) setState(() => _loading = true);
+    if (_refreshing) {
+      return;
+    }
+
+    _refreshing = true;
+    if (!silent && mounted && !_loading) {
+      setState(() => _loading = true);
+    }
     try {
+      final ChatRepository repository = ref.read(chatRepositoryProvider);
       final PagedResult<ChatMessage> result =
-          await ref.read(chatRepositoryProvider).getMessages(widget.conversation.id);
-      if (!mounted) return;
+          await repository.getMessages(widget.conversation.id);
+      final ConversationItem conversation =
+          await repository.getConversation(widget.conversation.id);
+      if (!mounted) {
+        return;
+      }
       final List<ChatMessage> ordered = result.items.reversed.toList(growable: false);
       setState(() {
         _messages = ordered;
+        _canSendMessages = conversation.canSendMessages;
+        if (!_canSendMessages) {
+          _attachment = null;
+          _attachmentPreview = null;
+        }
         _error = null;
         _loading = false;
       });
@@ -70,17 +93,25 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       if (!silent) {
         setState(() {
           _error = ApiException.from(error).message;
           _loading = false;
         });
       }
+    } finally {
+      _refreshing = false;
     }
   }
 
   Future<void> _pickAttachment() async {
+    if (!_canSendMessages) {
+      return;
+    }
+
     final XFile? file = await ImagePicker().pickImage(
       source: ImageSource.gallery,
       imageQuality: 88,
@@ -100,6 +131,10 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _send() async {
+    if (!_canSendMessages) {
+      return;
+    }
+
     final String text = _messageController.text.trim();
     if (text.isEmpty && _attachment == null) return;
     setState(() => _sending = true);
@@ -118,7 +153,17 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
       await _loadMessages(silent: true);
     } catch (error) {
-      if (mounted) showMessage(context, ApiException.from(error).message, error: true);
+      final ApiException apiError = ApiException.from(error);
+      if (mounted) {
+        if (apiError.statusCode == 403) {
+          setState(() {
+            _canSendMessages = false;
+            _attachment = null;
+            _attachmentPreview = null;
+          });
+        }
+        showMessage(context, apiError.message, error: true);
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -191,7 +236,34 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                             },
                           ),
           ),
-          if (_attachmentPreview != null)
+          if (!_canSendMessages)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: <Widget>[
+                  Icon(
+                    Icons.person_off_outlined,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'You are no longer friends. Message history remains available, but new messages are disabled.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_attachmentPreview != null && _canSendMessages)
             Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               alignment: Alignment.centerLeft,
@@ -224,25 +296,29 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                 children: <Widget>[
                   IconButton(
                     tooltip: 'Attach image',
-                    onPressed: _sending ? null : _pickAttachment,
+                    onPressed:
+                        _sending || !_canSendMessages ? null : _pickAttachment,
                     icon: const Icon(Icons.attach_file),
                   ),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
+                      enabled: _canSendMessages && !_sending,
                       maxLines: 5,
                       minLines: 1,
                       maxLength: 4000,
-                      decoration: const InputDecoration(
-                        hintText: 'Message',
+                      decoration: InputDecoration(
+                        hintText: _canSendMessages
+                            ? 'Message'
+                            : 'Messaging is unavailable',
                         counterText: '',
                       ),
-                      onSubmitted: (_) => _send(),
+                      onSubmitted: _canSendMessages ? (_) => _send() : null,
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: _sending ? null : _send,
+                    onPressed: _sending || !_canSendMessages ? null : _send,
                     icon: _sending
                         ? const SizedBox.square(
                             dimension: 18,

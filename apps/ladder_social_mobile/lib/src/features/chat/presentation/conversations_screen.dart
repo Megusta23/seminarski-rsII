@@ -100,7 +100,9 @@ final class _ConversationsScreenState extends ConsumerState<ConversationsScreen>
                             ),
                             title: Text(item.displayTitle),
                             subtitle: Text(
-                              item.lastMessagePreview ?? 'No messages yet',
+                              item.canSendMessages
+                                  ? item.lastMessagePreview ?? 'No messages yet'
+                                  : 'Read-only conversation · ${item.lastMessagePreview ?? 'No messages'}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),

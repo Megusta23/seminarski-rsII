@@ -1,3 +1,4 @@
+using System.Data;
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Common.Models;
@@ -121,6 +122,17 @@ public sealed class ChatService(
                         item.HasAvatar ? $"/api/media/avatars/{item.Id}" : null,
                         item.Id == userId))
                     .ToArray());
+        var otherParticipantIds = participantRows
+            .Where(item => item.Id != userId)
+            .Select(item => item.Id)
+            .Distinct()
+            .ToArray();
+        var activeFriendIds = (await dbContext.Friendships
+            .AsNoTracking()
+            .Where(item => item.UserId == userId && otherParticipantIds.Contains(item.FriendUserId))
+            .Select(item => item.FriendUserId)
+            .ToArrayAsync(cancellationToken))
+            .ToHashSet();
         var items = conversations
             .Select(conversation =>
             {
@@ -132,10 +144,17 @@ public sealed class ChatService(
                     : string.Join(", ", participants
                         .Where(item => !item.IsCurrentUser)
                         .Select(item => item.DisplayName));
+                var otherParticipants = participants
+                    .Where(item => !item.IsCurrentUser)
+                    .ToArray();
+                var canSendMessages = conversation.IsGroup ||
+                    (otherParticipants.Length == 1 &&
+                     activeFriendIds.Contains(otherParticipants[0].UserId));
                 return new ConversationResponse(
                     conversation.Id,
                     string.IsNullOrWhiteSpace(title) ? "Conversation" : title,
                     conversation.IsGroup,
+                    canSendMessages,
                     conversation.LastMessageAtUtc,
                     lastMessage?.Content ?? (lastMessage?.Type == MessageType.Image ? "Image" : null),
                     unreadCounts.GetValueOrDefault(conversation.Id),
@@ -231,7 +250,7 @@ public sealed class ChatService(
         CancellationToken cancellationToken)
     {
         var userId = RequireCurrentUserId();
-        await EnsureMembershipAsync(conversationId, cancellationToken);
+        await EnsureCanSendMessageAsync(conversationId, userId, cancellationToken);
         var content = string.IsNullOrWhiteSpace(command.Content) ? null : command.Content.Trim();
         if (content is null && command.Attachment is null)
         {
@@ -278,7 +297,10 @@ public sealed class ChatService(
             var strategy = dbContext.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
             {
-                await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+                await using var transaction = await dbContext.Database.BeginTransactionAsync(
+                    IsolationLevel.Serializable,
+                    cancellationToken);
+                await EnsureCanSendMessageAsync(conversationId, userId, cancellationToken);
                 dbContext.Messages.Add(message);
                 if (storedFile is not null)
                 {
@@ -309,7 +331,9 @@ public sealed class ChatService(
                     UserId = recipientId,
                     Kind = NotificationKind.NewMessage,
                     Title = "New message",
-                    Body = $"{senderName}: {content ?? "sent an image"}",
+                    Body = storedFile is null
+                        ? $"{senderName} sent you a message."
+                        : $"{senderName} sent you an image.",
                     RelatedEntityType = "Conversation",
                     RelatedEntityId = conversationId
                 }));
@@ -409,7 +433,7 @@ public sealed class ChatService(
         }
     }
 
-    private async Task<ConversationResponse> GetConversationAsync(
+    public async Task<ConversationResponse> GetConversationAsync(
         Guid conversationId,
         CancellationToken cancellationToken)
     {
@@ -471,14 +495,64 @@ public sealed class ChatService(
             : string.Join(", ", participantResponses
                 .Where(item => !item.IsCurrentUser)
                 .Select(item => item.DisplayName));
+        var otherParticipantIds = participantResponses
+            .Where(item => !item.IsCurrentUser)
+            .Select(item => item.UserId)
+            .ToArray();
+        var canSendMessages = conversation.IsGroup ||
+            (otherParticipantIds.Length == 1 &&
+             await dbContext.Friendships
+                 .AsNoTracking()
+                 .AnyAsync(
+                     item => item.UserId == userId &&
+                         item.FriendUserId == otherParticipantIds[0],
+                     cancellationToken));
         return new ConversationResponse(
             conversation.Id,
             string.IsNullOrWhiteSpace(title) ? "Conversation" : title,
             conversation.IsGroup,
+            canSendMessages,
             conversation.LastMessageAtUtc,
             lastMessage?.Content ?? (lastMessage?.Type == MessageType.Image ? "Image" : null),
             unreadCount,
             participantResponses);
+    }
+
+    private async Task EnsureCanSendMessageAsync(
+        Guid conversationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var conversation = await (
+                from participant in dbContext.ConversationParticipants.AsNoTracking()
+                join item in dbContext.Conversations.AsNoTracking()
+                    on participant.ConversationId equals item.Id
+                where participant.UserId == userId && item.Id == conversationId
+                select item)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("The requested conversation was not found.");
+        if (conversation.IsGroup)
+        {
+            return;
+        }
+
+        var otherParticipantIds = await dbContext.ConversationParticipants
+            .AsNoTracking()
+            .Where(item => item.ConversationId == conversationId && item.UserId != userId)
+            .Select(item => item.UserId)
+            .ToArrayAsync(cancellationToken);
+        var isActiveFriendship = otherParticipantIds.Length == 1 &&
+            await dbContext.Friendships
+                .AsNoTracking()
+                .AnyAsync(
+                    item => item.UserId == userId &&
+                        item.FriendUserId == otherParticipantIds[0],
+                    cancellationToken);
+        if (!isActiveFriendship)
+        {
+            throw new ForbiddenException(
+                "You can send new direct messages only while you are friends.");
+        }
     }
 
     private IQueryable<MessageProjection> BuildMessageQuery(

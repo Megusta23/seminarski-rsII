@@ -57,8 +57,8 @@ final Provider<LeaderboardRepository> leaderboardRepositoryProvider =
     Provider<LeaderboardRepository>(
   (Ref ref) => LeaderboardRepository(ref.watch(apiClientProvider)),
 );
-final Provider<NotificationRepository> notificationRepositoryProvider =
-    Provider<NotificationRepository>(
+final Provider<NotificationDataSource> notificationRepositoryProvider =
+    Provider<NotificationDataSource>(
   (Ref ref) => NotificationRepository(ref.watch(apiClientProvider)),
 );
 final Provider<ChatRepository> chatRepositoryProvider = Provider<ChatRepository>(

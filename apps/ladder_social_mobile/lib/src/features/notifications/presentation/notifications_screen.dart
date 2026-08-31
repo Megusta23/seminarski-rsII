@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
@@ -5,7 +7,12 @@ import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
 
 final class NotificationsScreen extends ConsumerStatefulWidget {
-  const NotificationsScreen({super.key});
+  const NotificationsScreen({
+    this.pollInterval = const Duration(seconds: 10),
+    super.key,
+  });
+
+  final Duration pollInterval;
 
   @override
   ConsumerState<NotificationsScreen> createState() =>
@@ -13,11 +20,22 @@ final class NotificationsScreen extends ConsumerStatefulWidget {
 }
 
 final class _NotificationsScreenState
-    extends ConsumerState<NotificationsScreen> {
-  Future<PagedResult<AppNotification>>? _future;
+    extends ConsumerState<NotificationsScreen> with WidgetsBindingObserver {
+  Timer? _pollTimer;
+  List<AppNotification> _items = const <AppNotification>[];
   bool? _isRead;
-
   bool _didInitialize = false;
+  bool _isLoading = true;
+  bool _isRefreshing = false;
+  bool _reloadQueued = false;
+  bool _queuedShowLoading = false;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   @override
   void didChangeDependencies() {
@@ -27,25 +45,90 @@ final class _NotificationsScreenState
     }
 
     _didInitialize = true;
-    _future = _requestNotifications();
-    ref.invalidate(notificationSummaryProvider);
+    _startPolling();
+    unawaited(_load());
   }
 
-  Future<PagedResult<AppNotification>> _requestNotifications() {
-    return ref
-        .read(notificationRepositoryProvider)
-        .getNotifications(isRead: _isRead);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      unawaited(_load());
+      return;
+    }
+
+    _pollTimer?.cancel();
+    _pollTimer = null;
   }
 
-  void _load() {
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(
+      widget.pollInterval,
+      (_) => unawaited(_load()),
+    );
+  }
+
+  Future<void> _load({bool showLoading = false}) async {
     if (!mounted) {
       return;
     }
 
-    setState(() {
-      _future = _requestNotifications();
-    });
-    ref.invalidate(notificationSummaryProvider);
+    if (_isRefreshing) {
+      _reloadQueued = true;
+      _queuedShowLoading = _queuedShowLoading || showLoading;
+      return;
+    }
+
+    _isRefreshing = true;
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final PagedResult<AppNotification> result = await ref
+          .read(notificationRepositoryProvider)
+          .getNotifications(isRead: _isRead);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _items = List<AppNotification>.unmodifiable(result.items);
+        _isLoading = false;
+        _error = null;
+      });
+      ref.invalidate(notificationSummaryProvider);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      if (showLoading || _items.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _error = error;
+        });
+      }
+    } finally {
+      _isRefreshing = false;
+      if (_reloadQueued && mounted) {
+        final bool queuedShowLoading = _queuedShowLoading;
+        _reloadQueued = false;
+        _queuedShowLoading = false;
+        unawaited(_load(showLoading: queuedShowLoading));
+      }
+    }
   }
 
   Future<void> _markAll() async {
@@ -53,7 +136,7 @@ final class _NotificationsScreenState
       await ref.read(notificationRepositoryProvider).markAllRead();
       if (mounted) {
         showMessage(context, 'All notifications marked as read.');
-        _load();
+        await _load();
       }
     } catch (error) {
       if (mounted) {
@@ -66,10 +149,11 @@ final class _NotificationsScreenState
     if (notification.isRead) {
       return;
     }
+
     try {
       await ref.read(notificationRepositoryProvider).markRead(notification.id);
       if (mounted) {
-        _load();
+        await _load();
       }
     } catch (error) {
       if (mounted) {
@@ -100,7 +184,7 @@ final class _NotificationsScreenState
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async => _load(),
+        onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -114,54 +198,53 @@ final class _NotificationsScreenState
               selected: <bool?>{_isRead},
               onSelectionChanged: (Set<bool?> values) {
                 setState(() => _isRead = values.first);
-                _load();
+                unawaited(_load(showLoading: true));
               },
             ),
             const SizedBox(height: 12),
-            FutureBuilder<PagedResult<AppNotification>>(
-              future: _future,
-              builder: (BuildContext context,
-                  AsyncSnapshot<PagedResult<AppNotification>> snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                      child: Padding(
-                          padding: EdgeInsets.all(32),
-                          child: CircularProgressIndicator()));
-                }
-                if (snapshot.hasError) {
-                  return AppErrorView(error: snapshot.error!, onRetry: _load);
-                }
-                final List<AppNotification> items = snapshot.data!.items;
-                if (items.isEmpty) {
-                  return const EmptyState(
-                    icon: Icons.notifications_none,
-                    title: 'No notifications',
-                  );
-                }
-                return Column(
-                  children: items
-                      .map((AppNotification item) => Card(
-                            color: item.isRead
-                                ? null
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .primaryContainer,
-                            child: ListTile(
-                              onTap: () => _mark(item),
-                              leading: Icon(_icon(item.kind)),
-                              title: Text(item.title),
-                              subtitle: Text(
-                                  '${item.body}\n${formatDateTime(item.createdAtUtc)}'),
-                              isThreeLine: true,
-                              trailing: item.isRead
-                                  ? const Icon(Icons.done, size: 18)
-                                  : const Icon(Icons.circle, size: 12),
-                            ),
-                          ))
-                      .toList(growable: false),
-                );
-              },
-            ),
+            if (_isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else if (_error != null)
+              AppErrorView(
+                error: _error!,
+                onRetry: () => unawaited(_load(showLoading: true)),
+              )
+            else if (_items.isEmpty)
+              const EmptyState(
+                icon: Icons.notifications_none,
+                title: 'No notifications',
+              )
+            else
+              Column(
+                children: _items
+                    .map(
+                      (AppNotification item) => Card(
+                        color: item.isRead
+                            ? null
+                            : Theme.of(context)
+                                .colorScheme
+                                .primaryContainer,
+                        child: ListTile(
+                          onTap: () => _mark(item),
+                          leading: Icon(_icon(item.kind)),
+                          title: Text(item.title),
+                          subtitle: Text(
+                            '${item.body}\n${formatDateTime(item.createdAtUtc)}',
+                          ),
+                          isThreeLine: true,
+                          trailing: item.isRead
+                              ? const Icon(Icons.done, size: 18)
+                              : const Icon(Icons.circle, size: 12),
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
           ],
         ),
       ),

@@ -9,6 +9,7 @@ public sealed record ConversationResponse(
     Guid Id,
     string DisplayTitle,
     bool IsGroup,
+    bool CanSendMessages,
     DateTime? LastMessageAtUtc,
     string? LastMessagePreview,
     int UnreadCount,
@@ -42,6 +43,7 @@ public sealed record SendMessageCommand(
 public interface IChatService
 {
     Task<PagedResult<ConversationResponse>> GetConversationsAsync(PagedRequest request, CancellationToken cancellationToken);
+    Task<ConversationResponse> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken);
     Task<ConversationResponse> StartDirectConversationAsync(Guid friendUserId, CancellationToken cancellationToken);
     Task<PagedResult<MessageResponse>> GetMessagesAsync(Guid conversationId, PagedRequest request, CancellationToken cancellationToken);
     Task<MessageResponse> SendMessageAsync(Guid conversationId, SendMessageCommand command, CancellationToken cancellationToken);

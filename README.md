@@ -226,8 +226,14 @@ Primjeri:
 ./scripts/test-demo-seed.sh
 ./scripts/test-tasks.sh
 ./scripts/test-feed-v2.sh
+./scripts/test-review-chat-notifications.sh
 ./scripts/test-admin-reports.sh
 ```
+
+Direct razgovor ostaje čitljiv nakon uklanjanja prijateljstva, ali je slanje
+novih poruka blokirano dok korisnici ponovo ne postanu prijatelji. Otvorena
+lista obavijesti automatski se osvježava periodičnim pollingom, bez obaveznog
+pull-to-refresh poteza.
 
 ## Sistem preporuke
 

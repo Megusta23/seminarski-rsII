@@ -18,6 +18,12 @@ public sealed class ChatController(IChatService chatService) : ControllerBase
         CancellationToken cancellationToken) =>
         Ok(await chatService.GetConversationsAsync(request, cancellationToken));
 
+    [HttpGet("{conversationId:guid}")]
+    public async Task<ActionResult<ConversationResponse>> GetConversation(
+        Guid conversationId,
+        CancellationToken cancellationToken) =>
+        Ok(await chatService.GetConversationAsync(conversationId, cancellationToken));
+
     [HttpPost("direct/{friendUserId:guid}")]
     public async Task<ActionResult<ConversationResponse>> StartDirect(
         Guid friendUserId,

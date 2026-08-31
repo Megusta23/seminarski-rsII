@@ -6,10 +6,26 @@ import 'package:ladder_social_core/src/models/paged_result.dart';
 import 'package:ladder_social_core/src/network/api_client.dart';
 import 'package:ladder_social_core/src/notifications/notification_models.dart';
 
-final class NotificationRepository {
+abstract interface class NotificationDataSource {
+  Future<PagedResult<AppNotification>> getNotifications({
+    bool? isRead,
+    String? search,
+    int page = 1,
+    int pageSize = 20,
+  });
+
+  Future<NotificationSummary> getSummary();
+
+  Future<void> markRead(String id);
+
+  Future<void> markAllRead();
+}
+
+final class NotificationRepository implements NotificationDataSource {
   const NotificationRepository(this._client);
   final ApiClient _client;
 
+  @override
   Future<PagedResult<AppNotification>> getNotifications({
     bool? isRead,
     String? search,
@@ -34,6 +50,7 @@ final class NotificationRepository {
     }
   }
 
+  @override
   Future<NotificationSummary> getSummary() async {
     try {
       final Response<dynamic> response = await _client.dio.get<dynamic>(
@@ -49,7 +66,11 @@ final class NotificationRepository {
     }
   }
 
-  Future<void> markRead(String id) => _post('/api/notifications/$id/read');
+  @override
+  Future<void> markRead(String id) =>
+      _post('/api/notifications/$id/read');
+
+  @override
   Future<void> markAllRead() => _post('/api/notifications/read-all');
 
   Future<void> _post(String path) async {

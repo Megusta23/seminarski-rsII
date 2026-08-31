@@ -34,6 +34,7 @@ final class ConversationItem {
     required this.id,
     required this.displayTitle,
     required this.isGroup,
+    required this.canSendMessages,
     required this.unreadCount,
     required this.participants,
     this.lastMessageAtUtc,
@@ -45,6 +46,7 @@ final class ConversationItem {
         id: requiredString(json, 'id'),
         displayTitle: requiredString(json, 'displayTitle'),
         isGroup: requiredBool(json, 'isGroup'),
+        canSendMessages: requiredBool(json, 'canSendMessages'),
         lastMessageAtUtc: nullableDateTime(json['lastMessageAtUtc']),
         lastMessagePreview: nullableString(json['lastMessagePreview']),
         unreadCount: requiredInt(json, 'unreadCount'),
@@ -59,6 +61,7 @@ final class ConversationItem {
   final String id;
   final String displayTitle;
   final bool isGroup;
+  final bool canSendMessages;
   final DateTime? lastMessageAtUtc;
   final String? lastMessagePreview;
   final int unreadCount;

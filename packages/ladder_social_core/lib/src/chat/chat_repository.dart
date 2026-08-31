@@ -48,6 +48,21 @@ final class ChatRepository {
     }
   }
 
+  Future<ConversationItem> getConversation(String conversationId) async {
+    try {
+      final Response<dynamic> response = await _client.dio.get<dynamic>(
+        '/api/conversations/$conversationId',
+      );
+      return ConversationItem.fromJson(
+        jsonMap(response.data, context: 'conversation'),
+      );
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
   Future<PagedResult<ChatMessage>> getMessages(
     String conversationId, {
     int page = 1,

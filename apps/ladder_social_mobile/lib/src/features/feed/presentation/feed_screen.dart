@@ -26,7 +26,7 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<FeedPost> _items = <FeedPost>[];
 
-  DateTime _selectedDate = DateUtils.dateOnly(DateTime.now());
+  DateTime _selectedDate = utcBusinessDate();
   List<FriendProgress> _friendProgress = <FriendProgress>[];
   Object? _initialError;
   Object? _loadMoreError;
@@ -146,7 +146,7 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
   Future<void> _loadMore() => _load(reset: false);
 
   Future<void> _pickDate() async {
-    final DateTime today = DateUtils.dateOnly(DateTime.now());
+    final DateTime today = utcBusinessDate();
     final DateTime? selected = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
@@ -161,7 +161,7 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   Future<void> _moveDate(int days) async {
     final DateTime candidate = DateUtils.dateOnly(_selectedDate.add(Duration(days: days)));
-    final DateTime today = DateUtils.dateOnly(DateTime.now());
+    final DateTime today = utcBusinessDate();
     if (candidate.isAfter(today)) return;
     setState(() => _selectedDate = candidate);
     await _load(reset: true);
@@ -216,7 +216,7 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   String get _dateLabel {
-    final DateTime today = DateUtils.dateOnly(DateTime.now());
+    final DateTime today = utcBusinessDate();
     if (DateUtils.isSameDay(_selectedDate, today)) return 'Today';
     if (DateUtils.isSameDay(_selectedDate, today.subtract(const Duration(days: 1)))) {
       return 'Yesterday';
@@ -268,7 +268,7 @@ final class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final DateTime today = DateUtils.dateOnly(DateTime.now());
+    final DateTime today = utcBusinessDate();
     final List<_FriendFeedGroup> groups = _buildGroups();
     return RefreshIndicator(
       onRefresh: () => _load(reset: true),

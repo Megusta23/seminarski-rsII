@@ -36,6 +36,7 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
   String? _error;
 
   bool get _isEditing => widget.initialTask != null;
+  bool get _canEditExisting => widget.initialTask?.canEdit ?? true;
 
   ReferenceItem? get _selectedCategory {
     for (final ReferenceItem category in _categories) {
@@ -169,6 +170,18 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isEditing && !_canEditExisting) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Task details')),
+        body: const EmptyState(
+          icon: Icons.lock_outline,
+          title: 'This task cannot be edited',
+          message:
+              'Completed and archived tasks are terminal. Create a new task instead.',
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -333,20 +346,14 @@ final class _TaskFormScreenState extends ConsumerState<TaskFormScreen> {
                           label: 'Status',
                           icon: Icons.flag_outlined,
                         ),
-                        items: const <DropdownMenuItem<int>>[
-                          DropdownMenuItem(
-                            value: TaskStatus.active,
-                            child: Text('Active'),
-                          ),
-                          DropdownMenuItem(
-                            value: TaskStatus.cancelled,
-                            child: Text('Cancelled'),
-                          ),
-                          DropdownMenuItem(
-                            value: TaskStatus.archived,
-                            child: Text('Archived'),
-                          ),
-                        ],
+                        items: widget.initialTask!.allowedEditStatuses
+                            .map(
+                              (int status) => DropdownMenuItem<int>(
+                                value: status,
+                                child: Text(TaskStatus.label(status)),
+                              ),
+                            )
+                            .toList(growable: false),
                         onChanged: _saving
                             ? null
                             : (int? value) =>

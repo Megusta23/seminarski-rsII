@@ -2,6 +2,7 @@ using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Common.Models;
 using LadderSocial.Application.Features.Admin;
+using LadderSocial.Application.Features.Tasks;
 using LadderSocial.Infrastructure.Identity;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
@@ -13,7 +14,8 @@ public sealed class AdminService(
     ApplicationDbContext dbContext,
     UserManager<AppUser> userManager,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider) : IAdminService
+    IDateTimeProvider dateTimeProvider,
+    ICompletionStatisticsService completionStatisticsService) : IAdminService
 {
     public async Task<AdminDashboardResponse> GetDashboardAsync(
         CancellationToken cancellationToken)
@@ -22,23 +24,18 @@ public sealed class AdminService(
         var totalUsers = await dbContext.Users.CountAsync(cancellationToken);
         var activeUsers = await dbContext.Users.CountAsync(item => item.IsActive, cancellationToken);
         var tasksCreated = await dbContext.Tasks.CountAsync(cancellationToken);
-        var tasksCompletedToday = await dbContext.TaskCompletions.CountAsync(
-            item => item.OccurrenceDate == today,
+        var tasksCompletedToday = await completionStatisticsService.GetCompletionCountAsync(
+            today,
+            today,
             cancellationToken);
         var sharedPosts = await dbContext.Posts.CountAsync(cancellationToken);
         var friendRequests = await dbContext.FriendRequests.CountAsync(cancellationToken);
         var messages = await dbContext.Messages.CountAsync(cancellationToken);
-        var topRows = await dbContext.TaskCompletions
-            .AsNoTracking()
-            .GroupBy(item => item.UserId)
-            .Select(group => new
-            {
-                UserId = group.Key,
-                CompletedTaskCount = group.Count()
-            })
-            .OrderByDescending(item => item.CompletedTaskCount)
-            .Take(5)
-            .ToArrayAsync(cancellationToken);
+        var topRows = await completionStatisticsService.GetTopUsersAsync(
+            null,
+            null,
+            5,
+            cancellationToken);
         var topIds = topRows.Select(item => item.UserId).ToArray();
         var names = await dbContext.Users
             .AsNoTracking()
@@ -49,7 +46,7 @@ public sealed class AdminService(
             .Select(item => new AdminTopUserResponse(
                 item.UserId,
                 names[item.UserId],
-                item.CompletedTaskCount))
+                item.CompletionCount))
             .ToArray();
 
         return new AdminDashboardResponse(
@@ -78,8 +75,7 @@ public sealed class AdminService(
                 User = user,
                 Profile = profile,
                 CityName = city == null ? null : city.Name,
-                FriendCount = dbContext.Friendships.Count(item => item.UserId == user.Id),
-                CompletedTaskCount = dbContext.TaskCompletions.Count(item => item.UserId == user.Id)
+                FriendCount = dbContext.Friendships.Count(item => item.UserId == user.Id)
             };
 
         if (!string.IsNullOrWhiteSpace(request.Search))
@@ -116,10 +112,12 @@ public sealed class AdminService(
                 item.CityName,
                 item.User.CreatedAtUtc,
                 item.FriendCount,
-                item.CompletedTaskCount,
                 HasAvatar = item.Profile.AvatarStorageKey != null
             })
             .ToArrayAsync(cancellationToken);
+        var completionCounts = await completionStatisticsService.GetTotalCompletionCountsAsync(
+            rows.Select(item => item.Id).ToArray(),
+            cancellationToken);
         var items = rows
             .Select(item => new AdminUserListItemResponse(
                 item.Id,
@@ -129,7 +127,7 @@ public sealed class AdminService(
                 item.CityName,
                 item.CreatedAtUtc,
                 item.FriendCount,
-                item.CompletedTaskCount,
+                completionCounts.GetValueOrDefault(item.Id),
                 item.HasAvatar ? $"/api/media/avatars/{item.Id}" : null))
             .ToArray();
 
@@ -153,7 +151,6 @@ public sealed class AdminService(
                     CityName = city == null ? null : city.Name,
                     FriendCount = dbContext.Friendships.Count(item => item.UserId == user.Id),
                     TaskCount = dbContext.Tasks.Count(item => item.OwnerUserId == user.Id),
-                    CompletedTaskCount = dbContext.TaskCompletions.Count(item => item.UserId == user.Id),
                     PostCount = dbContext.Posts.Count(item => item.AuthorUserId == user.Id),
                     MessageCount = dbContext.Messages.Count(item => item.SenderUserId == user.Id)
                 })
@@ -162,6 +159,9 @@ public sealed class AdminService(
         var userEntity = await userManager.FindByIdAsync(id.ToString())
             ?? throw new NotFoundException("The requested user was not found.");
         var roles = await userManager.GetRolesAsync(userEntity);
+        var completedTaskCount = await completionStatisticsService.GetTotalCompletionCountAsync(
+            id,
+            cancellationToken);
 
         return new AdminUserDetailResponse(
             data.User.Id,
@@ -176,7 +176,7 @@ public sealed class AdminService(
             data.User.CreatedAtUtc,
             data.FriendCount,
             data.TaskCount,
-            data.CompletedTaskCount,
+            completedTaskCount,
             data.PostCount,
             data.MessageCount,
             data.Profile.AvatarStorageKey != null ? $"/api/media/avatars/{data.User.Id}" : null,

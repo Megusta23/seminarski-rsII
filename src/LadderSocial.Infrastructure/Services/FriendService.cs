@@ -2,6 +2,7 @@ using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Common.Models;
 using LadderSocial.Application.Features.Friends;
+using LadderSocial.Application.Features.Tasks;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Domain.Enums;
 using LadderSocial.Infrastructure.Identity;
@@ -15,7 +16,8 @@ public sealed class FriendService(
     ICurrentUserService currentUserService,
     IDateTimeProvider dateTimeProvider,
     IRealtimeNotifier realtimeNotifier,
-    ProfileOverviewQueryService profileOverviewQueryService) : IFriendService
+    ProfileOverviewQueryService profileOverviewQueryService,
+    ICompletionStatisticsService completionStatisticsService) : IFriendService
 {
     public async Task<PagedResult<FriendSummaryResponse>> GetFriendsAsync(
         PagedRequest request,
@@ -47,13 +49,14 @@ public sealed class FriendService(
             .Take(request.PageSize)
             .ToArrayAsync(cancellationToken);
         var ids = pageItems.Select(item => item.UserId).ToArray();
-        var counts = await dbContext.TaskCompletions
-            .AsNoTracking()
-            .Where(item => ids.Contains(item.UserId))
-            .GroupBy(item => item.UserId)
-            .Select(group => new { UserId = group.Key, Count = group.Count() })
-            .ToDictionaryAsync(item => item.UserId, item => item.Count, cancellationToken);
-        var streaks = await GetStreaksAsync(ids, cancellationToken);
+        var counts = await completionStatisticsService.GetTotalCompletionCountsAsync(
+            ids,
+            cancellationToken);
+        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var streaks = await completionStatisticsService.GetCurrentStreaksAsync(
+            ids,
+            businessDate,
+            cancellationToken);
         var currentFriendIds = dbContext.Friendships
             .AsNoTracking()
             .Where(item => item.UserId == userId)
@@ -629,43 +632,6 @@ public sealed class FriendService(
         request.Status = status;
         request.RespondedAtUtc = dateTimeProvider.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    private async Task<Dictionary<Guid, int>> GetStreaksAsync(
-        IReadOnlyCollection<Guid> userIds,
-        CancellationToken cancellationToken)
-    {
-        if (userIds.Count == 0)
-        {
-            return new Dictionary<Guid, int>();
-        }
-
-        var dates = await (
-                from completion in dbContext.TaskCompletions.AsNoTracking()
-                join task in dbContext.Tasks.AsNoTracking() on completion.TaskItemId equals task.Id
-                where userIds.Contains(completion.UserId)
-                select new { completion.UserId, completion.OccurrenceDate })
-            .ToArrayAsync(cancellationToken);
-        var today = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
-        return dates
-            .GroupBy(item => item.UserId)
-            .ToDictionary(
-                group => group.Key,
-                group => CalculateStreak(group.Select(item => item.OccurrenceDate), today));
-    }
-
-    private static int CalculateStreak(IEnumerable<DateOnly> completionDates, DateOnly today)
-    {
-        var dates = completionDates.Distinct().ToHashSet();
-        var cursor = dates.Contains(today) ? today : today.AddDays(-1);
-        var streak = 0;
-        while (dates.Contains(cursor))
-        {
-            streak++;
-            cursor = cursor.AddDays(-1);
-        }
-
-        return streak;
     }
 
     private Guid RequireCurrentUserId() =>

@@ -1,5 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
+using LadderSocial.Application.Features.Tasks;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Domain.Enums;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +10,8 @@ namespace LadderSocial.Infrastructure.Services;
 
 public sealed class ProfileOverviewQueryService(
     ApplicationDbContext dbContext,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ICompletionStatisticsService completionStatisticsService)
 {
     internal async Task<ProfileOverviewData> GetAsync(
         Guid userId,
@@ -42,13 +45,8 @@ public sealed class ProfileOverviewQueryService(
                 select friendship.Id)
             .CountAsync(cancellationToken);
 
-        var completedTaskCount = await (
-                from completion in dbContext.TaskCompletions.AsNoTracking()
-                join task in dbContext.Tasks.AsNoTracking()
-                    on completion.TaskItemId equals task.Id
-                where completion.UserId == userId
-                select completion.Id)
-            .CountAsync(cancellationToken);
+        var completedTaskCount = await completionStatisticsService
+            .GetTotalCompletionCountAsync(userId, cancellationToken);
 
         var habitCount = await (
                 from task in dbContext.Tasks.AsNoTracking()
@@ -56,10 +54,15 @@ public sealed class ProfileOverviewQueryService(
                     on task.RecurrenceTypeId equals recurrence.Id
                 where task.OwnerUserId == userId &&
                     task.Status == TaskItemStatus.Active &&
-                    recurrence.Code != "none"
+                    (recurrence.Code == RecurrenceCodes.Daily ||
+                     recurrence.Code == RecurrenceCodes.Weekly ||
+                     recurrence.Code == RecurrenceCodes.Monthly)
                 select task.Id)
             .CountAsync(cancellationToken);
 
+        // Social visibility intentionally keeps the normal Tasks query filter:
+        // deleted tasks disappear from feed/profile media, while their historical
+        // completions remain in the centralized statistics above.
         var visiblePostCount = await (
                 from post in dbContext.Posts.AsNoTracking()
                 join completion in dbContext.TaskCompletions.AsNoTracking()
@@ -72,16 +75,11 @@ public sealed class ProfileOverviewQueryService(
                 select post.Id)
             .CountAsync(cancellationToken);
 
-        var completionDates = await (
-                from completion in dbContext.TaskCompletions.AsNoTracking()
-                join task in dbContext.Tasks.AsNoTracking()
-                    on completion.TaskItemId equals task.Id
-                where completion.UserId == userId
-                select completion.OccurrenceDate)
-            .Distinct()
-            .ToArrayAsync(cancellationToken);
-        var today = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
-        var currentStreak = CalculateStreak(completionDates, today);
+        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var currentStreak = await completionStatisticsService.GetCurrentStreakAsync(
+            userId,
+            businessDate,
+            cancellationToken);
 
         var highlightedRows = await (
                 from post in dbContext.Posts.AsNoTracking()
@@ -140,22 +138,6 @@ public sealed class ProfileOverviewQueryService(
             habitCount,
             currentStreak,
             highlightedPosts);
-    }
-
-    private static int CalculateStreak(
-        IEnumerable<DateOnly> completionDates,
-        DateOnly today)
-    {
-        var dates = completionDates.Distinct().ToHashSet();
-        var cursor = dates.Contains(today) ? today : today.AddDays(-1);
-        var streak = 0;
-        while (dates.Contains(cursor))
-        {
-            streak++;
-            cursor = cursor.AddDays(-1);
-        }
-
-        return streak;
     }
 }
 

@@ -668,7 +668,7 @@ final class LeaderboardLoadingBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final DateTime now = DateTime.now();
+    final DateTime now = utcBusinessDate();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[

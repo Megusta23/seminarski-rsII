@@ -97,8 +97,8 @@ internal static class DemoSeedCatalog
         new("mobile-mindfulness", -2, 20, "Breathing exercise completed.", null, "mindfulness.png", false, true),
         new("mobile-mindfulness", -3, 20, "Quiet session completed.", null, "mindfulness.png", false, true),
         new("mobile-mindfulness", -4, 20, "Five-day streak started here.", null, "mindfulness.png", false, true),
-        new("mobile-hike", -1, 9, "Completed the full trail.", "Fresh air and a productive morning.", "hike.png", true, true),
-        new("mobile-weekly-plan", -2, 19, "Priorities scheduled.", "The coming week is organized.", "planning.png", true, true),
+        new("mobile-hike", -7, 9, "Completed the full trail.", "Fresh air and a productive morning.", "hike.png", true, true),
+        new("mobile-weekly-plan", -7, 19, "Priorities scheduled.", "The coming week is organized.", "planning.png", true, true),
 
         new("faruk-report", 0, 11, "Draft submitted.", "Quarterly report draft finished.", null, false, true),
         new("faruk-stretch", 0, 8, "Mobility routine completed.", "Ten minutes of stretching before work.", "workout.png", true, true),

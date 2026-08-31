@@ -1,6 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Options;
 using LadderSocial.Application.Common.Security;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Domain.Enums;
 using LadderSocial.Infrastructure.Identity;
@@ -117,10 +118,10 @@ public sealed class DemoDataSeeder(
         await EnsureTaskCategoryAsync("social", "Social", 20, cancellationToken);
         await EnsureTaskCategoryAsync("self-care", "Self-care", 30, cancellationToken);
         await EnsureTaskCategoryAsync("work", "Work", 40, cancellationToken);
-        await EnsureRecurrenceTypeAsync("none", "Does not repeat", 10, cancellationToken);
-        await EnsureRecurrenceTypeAsync("daily", "Daily", 20, cancellationToken);
-        await EnsureRecurrenceTypeAsync("weekly", "Weekly", 30, cancellationToken);
-        await EnsureRecurrenceTypeAsync("monthly", "Monthly", 40, cancellationToken);
+        await EnsureRecurrenceTypeAsync(RecurrenceCodes.None, "Does not repeat", 10, cancellationToken);
+        await EnsureRecurrenceTypeAsync(RecurrenceCodes.Daily, "Daily", 20, cancellationToken);
+        await EnsureRecurrenceTypeAsync(RecurrenceCodes.Weekly, "Weekly", 30, cancellationToken);
+        await EnsureRecurrenceTypeAsync(RecurrenceCodes.Monthly, "Monthly", 40, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         await EnsureCityAsync(bosnia.Id, "Sarajevo", 10, cancellationToken);
@@ -567,7 +568,7 @@ public sealed class DemoDataSeeder(
 
             if (string.Equals(
                     taskSpecs[spec.TaskKey].RecurrenceCode,
-                    "none",
+                    RecurrenceCodes.None,
                     StringComparison.OrdinalIgnoreCase))
             {
                 task.Status = TaskItemStatus.Completed;
@@ -932,7 +933,7 @@ public sealed class DemoDataSeeder(
             return null;
         }
 
-        var date = spec.RecurrenceCode == "monthly"
+        var date = spec.RecurrenceCode == RecurrenceCodes.Monthly
             ? today.AddMonths(-2)
             : today.AddDays(spec.DueDayOffset.Value);
         return date.ToDateTime(new TimeOnly(Math.Clamp(spec.DueHour, 0, 23), 0), DateTimeKind.Utc);

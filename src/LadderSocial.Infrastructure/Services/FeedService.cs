@@ -1,6 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Features.Feed;
+using LadderSocial.Application.Features.Tasks;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Domain.Enums;
 using LadderSocial.Infrastructure.Persistence;
@@ -11,7 +12,9 @@ namespace LadderSocial.Infrastructure.Services;
 public sealed class FeedService(
     ApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider) : IFeedService
+    IDateTimeProvider dateTimeProvider,
+    IRecurrenceRuleService recurrenceRuleService,
+    ICompletionStatisticsService completionStatisticsService) : IFeedService
 {
     public async Task<FeedPageResponse> GetFeedAsync(
         FeedRequest request,
@@ -249,9 +252,14 @@ public sealed class FeedService(
         string? search = null)
     {
         var dateStart = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var dateEnd = dateStart.AddDays(1);
+        var sharedActiveTasks = dbContext.Tasks
+            .AsNoTracking()
+            .Where(task => task.ShareWithFriends && task.Status == TaskItemStatus.Active);
+        var scheduledTaskIds = recurrenceRuleService.GetScheduledTaskIds(
+            sharedActiveTasks,
+            date);
 
-        var query =
+        return
             from friendship in dbContext.Friendships.AsNoTracking()
             join author in dbContext.Users.AsNoTracking()
                 on friendship.FriendUserId equals author.Id
@@ -265,23 +273,8 @@ public sealed class FeedService(
                 on task.RecurrenceTypeId equals recurrence.Id
             where friendship.UserId == userId &&
                 author.IsActive &&
-                task.ShareWithFriends &&
-                task.Status == TaskItemStatus.Active &&
+                scheduledTaskIds.Contains(task.Id) &&
                 (!taskId.HasValue || task.Id == taskId.Value) &&
-                task.CreatedAtUtc < dateEnd &&
-                (
-                    (recurrence.Code == "none" &&
-                        ((task.DueAtUtc.HasValue && task.DueAtUtc.Value >= dateStart && task.DueAtUtc.Value < dateEnd) ||
-                         (!task.DueAtUtc.HasValue && task.CreatedAtUtc >= dateStart && task.CreatedAtUtc < dateEnd))) ||
-                    (recurrence.Code == "daily" &&
-                        EF.Functions.DateDiffDay(task.CreatedAtUtc, dateStart) >= 0) ||
-                    (recurrence.Code == "weekly" &&
-                        EF.Functions.DateDiffDay(task.DueAtUtc ?? task.CreatedAtUtc, dateStart) >= 0 &&
-                        EF.Functions.DateDiffDay(task.DueAtUtc ?? task.CreatedAtUtc, dateStart) % 7 == 0) ||
-                    (recurrence.Code == "monthly" &&
-                        EF.Functions.DateDiffDay(task.DueAtUtc ?? task.CreatedAtUtc, dateStart) >= 0 &&
-                        (task.DueAtUtc ?? task.CreatedAtUtc).Day == dateStart.Day)
-                ) &&
                 !dbContext.TaskCompletions.Any(completion =>
                     completion.TaskItemId == task.Id &&
                     completion.UserId == author.Id &&
@@ -289,20 +282,12 @@ public sealed class FeedService(
                 (search == null ||
                     EF.Functions.Like(task.Title, $"%{search}%") ||
                     EF.Functions.Like(author.DisplayName, $"%{search}%"))
-            orderby
-                (task.DueAtUtc.HasValue && task.DueAtUtc.Value >= dateStart && task.DueAtUtc.Value < dateEnd
-                    ? task.DueAtUtc.Value
-                    : dateStart) descending,
-                task.Id descending
+            orderby task.DueAtUtc ?? dateStart descending, task.Id descending
             select new FeedQueryRow
             {
                 Id = task.Id,
                 ActivityType = FeedActivityType.Unfinished,
-                ActivityAtUtc = task.DueAtUtc.HasValue &&
-                    task.DueAtUtc.Value >= dateStart &&
-                    task.DueAtUtc.Value < dateEnd
-                        ? task.DueAtUtc.Value
-                        : dateStart,
+                ActivityAtUtc = task.DueAtUtc ?? dateStart,
                 OccurrenceDate = date,
                 AuthorUserId = author.Id,
                 AuthorDisplayName = author.DisplayName,
@@ -318,8 +303,6 @@ public sealed class FeedService(
                 ProofMediaId = null,
                 ViewedAtUtc = null
             };
-
-        return query;
     }
 
     private async Task<IReadOnlyCollection<FriendProgressResponse>> GetFriendProgressAsync(
@@ -349,45 +332,36 @@ public sealed class FeedService(
         }
 
         var friendIds = friends.Select(item => item.UserId).ToArray();
-        var dateStart = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-        var dateEnd = dateStart.AddDays(1);
-        var scheduledTasks = await (
-                from task in dbContext.Tasks.AsNoTracking()
-                join recurrence in dbContext.RecurrenceTypes.AsNoTracking()
-                    on task.RecurrenceTypeId equals recurrence.Id
-                where friendIds.Contains(task.OwnerUserId) &&
-                    task.ShareWithFriends &&
-                    task.Status != TaskItemStatus.Cancelled &&
-                    task.Status != TaskItemStatus.Archived &&
-                    task.CreatedAtUtc < dateEnd &&
-                    (
-                        (recurrence.Code == "none" &&
-                            ((task.DueAtUtc.HasValue && task.DueAtUtc.Value >= dateStart && task.DueAtUtc.Value < dateEnd) ||
-                             (!task.DueAtUtc.HasValue && task.CreatedAtUtc >= dateStart && task.CreatedAtUtc < dateEnd))) ||
-                        (recurrence.Code == "daily" &&
-                            EF.Functions.DateDiffDay(task.CreatedAtUtc, dateStart) >= 0) ||
-                        (recurrence.Code == "weekly" &&
-                            EF.Functions.DateDiffDay(task.DueAtUtc ?? task.CreatedAtUtc, dateStart) >= 0 &&
-                            EF.Functions.DateDiffDay(task.DueAtUtc ?? task.CreatedAtUtc, dateStart) % 7 == 0) ||
-                        (recurrence.Code == "monthly" &&
-                            EF.Functions.DateDiffDay(task.DueAtUtc ?? task.CreatedAtUtc, dateStart) >= 0 &&
-                            (task.DueAtUtc ?? task.CreatedAtUtc).Day == dateStart.Day)
-                    )
-                select new ScheduledTaskRow
-                {
-                    UserId = task.OwnerUserId,
-                    TaskId = task.Id
-                })
+        var eligibleTasks = dbContext.Tasks
+            .AsNoTracking()
+            .Where(task =>
+                friendIds.Contains(task.OwnerUserId) &&
+                task.ShareWithFriends &&
+                task.Status != TaskItemStatus.Cancelled &&
+                task.Status != TaskItemStatus.Archived);
+        var scheduledTaskIds = recurrenceRuleService.GetScheduledTaskIds(
+            eligibleTasks,
+            date);
+        var scheduledTasks = await eligibleTasks
+            .Where(task => scheduledTaskIds.Contains(task.Id))
+            .Select(task => new ScheduledTaskRow
+            {
+                UserId = task.OwnerUserId,
+                TaskId = task.Id
+            })
             .ToArrayAsync(cancellationToken);
 
-        var scheduledTaskIds = scheduledTasks.Select(item => item.TaskId).Distinct().ToArray();
-        var completedPairs = scheduledTaskIds.Length == 0
+        var scheduledIds = scheduledTasks
+            .Select(item => item.TaskId)
+            .Distinct()
+            .ToArray();
+        var completedPairs = scheduledIds.Length == 0
             ? Array.Empty<CompletedTaskRow>()
             : await dbContext.TaskCompletions
                 .AsNoTracking()
                 .Where(item =>
                     friendIds.Contains(item.UserId) &&
-                    scheduledTaskIds.Contains(item.TaskItemId) &&
+                    scheduledIds.Contains(item.TaskItemId) &&
                     item.OccurrenceDate == date)
                 .Select(item => new CompletedTaskRow
                 {
@@ -400,17 +374,26 @@ public sealed class FeedService(
             .ToHashSet();
         var tasksByFriend = scheduledTasks
             .GroupBy(item => item.UserId)
-            .ToDictionary(group => group.Key, group => group.Select(item => item.TaskId).Distinct().ToArray());
-        var streaks = await GetStreaksAsync(friendIds, cancellationToken);
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(item => item.TaskId).Distinct().ToArray());
+        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var streaks = await completionStatisticsService.GetCurrentStreaksAsync(
+            friendIds,
+            businessDate,
+            cancellationToken);
 
         return friends
             .Select(friend =>
             {
                 var taskIds = tasksByFriend.GetValueOrDefault(friend.UserId) ?? Array.Empty<Guid>();
-                var completedCount = taskIds.Count(taskId => completedKeys.Contains((friend.UserId, taskId)));
+                var completedCount = taskIds.Count(
+                    taskId => completedKeys.Contains((friend.UserId, taskId)));
                 var percentage = taskIds.Length == 0
                     ? (int?)null
-                    : (int)Math.Round(completedCount * 100d / taskIds.Length, MidpointRounding.AwayFromZero);
+                    : (int)Math.Round(
+                        completedCount * 100d / taskIds.Length,
+                        MidpointRounding.AwayFromZero);
 
                 return new FriendProgressResponse(
                     friend.UserId,
@@ -424,39 +407,6 @@ public sealed class FeedService(
             .OrderByDescending(item => item.Percentage ?? -1)
             .ThenBy(item => item.DisplayName)
             .ToArray();
-    }
-
-    private async Task<Dictionary<Guid, int>> GetStreaksAsync(
-        IReadOnlyCollection<Guid> userIds,
-        CancellationToken cancellationToken)
-    {
-        var today = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
-        var oldestRelevantDate = today.AddDays(-366);
-        var dates = await dbContext.TaskCompletions
-            .AsNoTracking()
-            .Where(item => userIds.Contains(item.UserId) && item.OccurrenceDate >= oldestRelevantDate)
-            .Select(item => new { item.UserId, item.OccurrenceDate })
-            .ToArrayAsync(cancellationToken);
-
-        return dates
-            .GroupBy(item => item.UserId)
-            .ToDictionary(
-                group => group.Key,
-                group => CalculateStreak(group.Select(item => item.OccurrenceDate), today));
-    }
-
-    private static int CalculateStreak(IEnumerable<DateOnly> completionDates, DateOnly today)
-    {
-        var dates = completionDates.Distinct().ToHashSet();
-        var cursor = dates.Contains(today) ? today : today.AddDays(-1);
-        var streak = 0;
-        while (dates.Contains(cursor))
-        {
-            streak++;
-            cursor = cursor.AddDays(-1);
-        }
-
-        return streak;
     }
 
     private DateOnly ValidateDate(DateOnly? requestedDate) =>

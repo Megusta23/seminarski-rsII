@@ -47,6 +47,8 @@ public sealed record TaskListItemResponse(
     bool RequiresProofImage,
     bool ShareWithFriends,
     bool IsCompletedForToday,
+    bool CanCompleteForToday,
+    DateOnly BusinessDate,
     DateTime CreatedAtUtc);
 
 public sealed record TaskDetailResponse(
@@ -65,6 +67,10 @@ public sealed record TaskDetailResponse(
     bool ShareWithFriends,
     DateTime CreatedAtUtc,
     DateTime? UpdatedAtUtc,
+    DateOnly BusinessDate,
+    bool CanEdit,
+    bool CanComplete,
+    IReadOnlyCollection<TaskItemStatus> AllowedEditStatuses,
     IReadOnlyCollection<TaskCompletionResponse> RecentCompletions);
 
 public sealed record CompleteTaskRequest(
@@ -96,6 +102,9 @@ public interface ITaskService
         CancellationToken cancellationToken);
 
     Task<TaskDetailResponse> GetMyTaskAsync(Guid id, CancellationToken cancellationToken);
+    Task<CompletionDateOptionsResponse> GetCompletionDateOptionsAsync(
+        Guid id,
+        CancellationToken cancellationToken);
     Task<TaskDetailResponse> CreateAsync(CreateTaskRequest request, CancellationToken cancellationToken);
     Task<TaskDetailResponse> UpdateAsync(Guid id, UpdateTaskRequest request, CancellationToken cancellationToken);
     Task DeleteAsync(Guid id, CancellationToken cancellationToken);

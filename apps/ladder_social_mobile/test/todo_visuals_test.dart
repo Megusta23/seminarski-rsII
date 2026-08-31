@@ -92,6 +92,8 @@ TaskListItem _task({
     requiresProofImage: requiresProof,
     shareWithFriends: false,
     isCompletedForToday: completedToday,
+    canCompleteForToday: !completedToday,
+    businessDate: DateTime.utc(2026, 8, 26),
     createdAtUtc: DateTime.utc(2026, 8, 25),
   );
 }

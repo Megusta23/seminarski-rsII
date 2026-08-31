@@ -93,8 +93,8 @@ final class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
               children: <Widget>[
                 LeaderboardPeriodHeader(
                   period: _period,
-                  fromDate: DateTime.now(),
-                  toDate: DateTime.now(),
+                  fromDate: utcBusinessDate(),
+                  toDate: utcBusinessDate(),
                   onChanged: _changePeriod,
                 ),
                 const SizedBox(height: 36),

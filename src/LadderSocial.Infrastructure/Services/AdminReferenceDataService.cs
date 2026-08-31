@@ -2,6 +2,7 @@ using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Common.Models;
 using LadderSocial.Application.Features.ReferenceData;
 using LadderSocial.Domain.Common;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Domain.Entities;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -291,8 +292,15 @@ public sealed class AdminReferenceDataService(ApplicationDbContext dbContext) : 
         CreateReferenceItemRequest request,
         CancellationToken cancellationToken)
     {
-        var (name, code) = NormalizeReferenceRequest(request.Name, request.Code);
-        await EnsureReferenceUniqueAsync(dbContext.RecurrenceTypes, null, name, code, "recurrence type", cancellationToken);
+        var name = NormalizeName(request.Name, "name", 100);
+        var code = NormalizeRecurrenceCode(request.Code);
+        await EnsureReferenceUniqueAsync(
+            dbContext.RecurrenceTypes,
+            null,
+            name,
+            code,
+            "recurrence type",
+            cancellationToken);
         var entity = new RecurrenceType
         {
             Name = name,
@@ -313,10 +321,41 @@ public sealed class AdminReferenceDataService(ApplicationDbContext dbContext) : 
         var entity = await dbContext.RecurrenceTypes
             .SingleOrDefaultAsync(item => item.Id == id, cancellationToken)
             ?? throw new NotFoundException("The requested recurrence type was not found.");
-        var (name, code) = NormalizeReferenceRequest(request.Name, request.Code);
-        await EnsureReferenceUniqueAsync(dbContext.RecurrenceTypes, id, name, code, "recurrence type", cancellationToken);
+        var name = NormalizeName(request.Name, "name", 100);
+        var requestedCode = NormalizeRecurrenceCode(request.Code);
+        var currentCode = string.IsNullOrWhiteSpace(entity.Code)
+            ? string.Empty
+            : RecurrenceCodes.Normalize(entity.Code);
+        var currentCodeIsSupported = RecurrenceCodes.IsSupported(currentCode);
+
+        if (currentCodeIsSupported &&
+            !string.Equals(requestedCode, currentCode, StringComparison.Ordinal))
+        {
+            throw new ValidationException(
+                "Reference-data validation failed.",
+                new Dictionary<string, string[]>
+                {
+                    ["code"] =
+                    [
+                        "The recurrence code defines application behavior and cannot be changed. " +
+                        "Edit only the display name, ordering or active state."
+                    ]
+                });
+        }
+
+        // Legacy databases may contain a code created before semantic recurrence
+        // values were restricted. Such a row can be repaired once by selecting one
+        // of the supported codes; supported codes remain immutable afterwards.
+        var effectiveCode = currentCodeIsSupported ? currentCode : requestedCode;
+        await EnsureReferenceUniqueAsync(
+            dbContext.RecurrenceTypes,
+            id,
+            name,
+            effectiveCode,
+            "recurrence type",
+            cancellationToken);
         entity.Name = name;
-        entity.Code = code;
+        entity.Code = effectiveCode;
         entity.IsActive = request.IsActive;
         entity.SortOrder = request.SortOrder;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -422,6 +461,27 @@ public sealed class AdminReferenceDataService(ApplicationDbContext dbContext) : 
         }
 
         return normalized;
+    }
+
+    private static string NormalizeRecurrenceCode(string value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : RecurrenceCodes.Normalize(value);
+        if (RecurrenceCodes.IsSupported(normalized))
+        {
+            return normalized;
+        }
+
+        throw new ValidationException(
+            "Reference-data validation failed.",
+            new Dictionary<string, string[]>
+            {
+                ["code"] =
+                [
+                    $"Select one of the supported recurrence codes: {string.Join(", ", RecurrenceCodes.Supported)}."
+                ]
+            });
     }
 
     private static (string Name, string Code) NormalizeReferenceRequest(string name, string code)

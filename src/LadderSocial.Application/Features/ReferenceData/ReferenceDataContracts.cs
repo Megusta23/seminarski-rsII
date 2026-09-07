@@ -82,17 +82,20 @@ public sealed record UpdateReferenceItemRequest(
 
 public interface IReferenceDataService
 {
-    Task<IReadOnlyCollection<CountryResponse>> GetCountriesAsync(
+    Task<PagedResult<CountryResponse>> GetCountriesAsync(
+        ReferenceDataListRequest request,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyCollection<CityResponse>> GetCitiesAsync(
-        Guid? countryId,
+    Task<PagedResult<CityResponse>> GetCitiesAsync(
+        ReferenceDataListRequest request,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyCollection<ReferenceItemResponse>> GetTaskCategoriesAsync(
+    Task<PagedResult<ReferenceItemResponse>> GetTaskCategoriesAsync(
+        ReferenceDataListRequest request,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyCollection<ReferenceItemResponse>> GetRecurrenceTypesAsync(
+    Task<PagedResult<ReferenceItemResponse>> GetRecurrenceTypesAsync(
+        ReferenceDataListRequest request,
         CancellationToken cancellationToken);
 }
 

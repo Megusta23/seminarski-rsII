@@ -5,10 +5,19 @@ using LadderSocial.Domain.Enums;
 
 namespace LadderSocial.Application.Features.Tasks;
 
+public enum TaskBoardSection
+{
+    Todo = 1,
+    Daily = 2,
+    Habit = 3
+}
+
 public sealed class TaskListRequest : PagedRequest
 {
     public Guid? CategoryId { get; set; }
     public Guid? RecurrenceTypeId { get; set; }
+    public TaskBoardSection? Section { get; set; }
+    public DateOnly? BusinessDate { get; set; }
     public TaskItemStatus? Status { get; set; }
     public DateTime? DueFromUtc { get; set; }
     public DateTime? DueToUtc { get; set; }

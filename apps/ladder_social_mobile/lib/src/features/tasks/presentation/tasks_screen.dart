@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
@@ -18,59 +20,122 @@ final class TasksScreen extends ConsumerStatefulWidget {
 }
 
 final class _TasksScreenState extends ConsumerState<TasksScreen> {
-  static const int _pageSize = 100;
+  static const int _pageSize = 15;
 
-  Future<List<TaskListItem>>? _future;
+  final Map<TodoSectionKind, _TodoSectionPageState> _sections =
+      <TodoSectionKind, _TodoSectionPageState>{
+    for (final TodoSectionKind kind in TodoSectionKind.values)
+      kind: _TodoSectionPageState(),
+  };
   final Set<TodoSectionKind> _expandedSections = <TodoSectionKind>{
     TodoSectionKind.todos,
     TodoSectionKind.dailies,
     TodoSectionKind.habits,
   };
+  bool _didInitialize = false;
   String? _busyTaskId;
 
   @override
-  void initState() {
-    super.initState();
-    _future = _fetchAllTasks();
-  }
-
-  Future<List<TaskListItem>> _fetchAllTasks() async {
-    final TaskRepository repository = ref.read(taskRepositoryProvider);
-    final List<TaskListItem> all = <TaskListItem>[];
-    int page = 1;
-    int totalPages = 1;
-
-    do {
-      final PagedResult<TaskListItem> result = await repository.getTasks(
-        TaskQuery(
-          page: page,
-          pageSize: _pageSize,
-          sortBy: 'dueAtUtc',
-          sortDirection: 'asc',
-        ),
-      );
-      all.addAll(result.items.where(todoTaskIsVisible));
-      totalPages = result.totalPages;
-      page += 1;
-    } while (page <= totalPages);
-
-    return List<TaskListItem>.unmodifiable(all);
-  }
-
-  Future<void> _load() async {
-    final Future<List<TaskListItem>> future = _fetchAllTasks();
-    if (!mounted) {
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didInitialize) {
       return;
     }
-    setState(() {
-      _future = future;
-    });
+    _didInitialize = true;
+    unawaited(_refreshAll());
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait<void>(
+      TodoSectionKind.values.map(
+        (TodoSectionKind kind) => _loadSection(kind, reset: true),
+      ),
+    );
+  }
+
+  Future<void> _loadSection(
+    TodoSectionKind kind, {
+    required bool reset,
+  }) async {
+    final _TodoSectionPageState state = _sections[kind]!;
+    if (state.refreshing || state.loadingMore) {
+      return;
+    }
+
+    final int generation = reset ? ++state.generation : state.generation;
+    if (mounted) {
+      setState(() {
+        if (reset) {
+          state.refreshing = true;
+          state.loading = state.items.isEmpty;
+          state.error = null;
+        } else {
+          state.loadingMore = true;
+          state.loadMoreError = null;
+        }
+      });
+    }
+
     try {
-      await future;
-    } catch (_) {
-      // FutureBuilder presents the error while RefreshIndicator can finish.
+      final int page = reset ? 1 : state.page + 1;
+      final PagedResult<TaskListItem> result =
+          await ref.read(taskRepositoryProvider).getTasks(
+                TaskQuery(
+                  section: _sectionValue(kind),
+                  page: page,
+                  pageSize: _pageSize,
+                  sortBy: 'dueAtUtc',
+                  sortDirection: 'asc',
+                ),
+              );
+      if (!mounted || generation != state.generation) {
+        return;
+      }
+
+      final List<TaskListItem> visible =
+          result.items.where(todoTaskIsVisible).toList(growable: false);
+      final List<TaskListItem> merged = reset
+          ? sortTodoTasks(visible)
+          : sortTodoTasks(
+              mergeUniqueItems<TaskListItem>(
+                current: state.items,
+                updates: visible,
+                keyOf: (TaskListItem item) => item.id,
+              ),
+            );
+      setState(() {
+        state.items = List<TaskListItem>.unmodifiable(merged);
+        state.page = result.page;
+        state.totalPages = result.totalPages;
+        state.totalCount = result.totalCount;
+        state.refreshing = false;
+        state.loading = false;
+        state.loadingMore = false;
+        state.error = null;
+        state.loadMoreError = null;
+      });
+    } catch (error) {
+      if (!mounted || generation != state.generation) {
+        return;
+      }
+      setState(() {
+        state.refreshing = false;
+        state.loading = false;
+        state.loadingMore = false;
+        if (reset && state.items.isEmpty) {
+          state.error = error;
+        } else {
+          state.loadMoreError = error;
+        }
+      });
     }
   }
+
+  int _sectionValue(TodoSectionKind kind) => switch (kind) {
+        TodoSectionKind.todos => TaskBoardSection.todo,
+        TodoSectionKind.dailies => TaskBoardSection.daily,
+        TodoSectionKind.habits => TaskBoardSection.habit,
+      };
 
   Future<void> _create() async {
     final TaskDetail? created = await Navigator.of(context).push<TaskDetail>(
@@ -78,7 +143,7 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
     );
     if (created != null && mounted) {
       showMessage(context, 'Task created.');
-      await _load();
+      await _refreshAll();
     }
   }
 
@@ -94,7 +159,7 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
     if (deleted == true) {
       showMessage(context, 'Task deleted.');
     }
-    await _load();
+    await _refreshAll();
   }
 
   Future<void> _handleStatusAction(TaskListItem item) async {
@@ -115,7 +180,8 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
       if (mounted) {
         showMessage(
           context,
-          'This task cannot be completed for the current UTC business date. Open its details to review valid occurrence dates.',
+          'This task cannot be completed for the current UTC business date. '
+          'Open its details to review valid occurrence dates.',
           error: true,
         );
         await _open(item);
@@ -149,7 +215,7 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
           context,
           'Task completed. You earned ${completion.scorePoints} point(s).',
         );
-        await _load();
+        await _refreshAll();
       }
     } catch (error) {
       if (mounted) {
@@ -199,7 +265,7 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
         context,
         'Task completed. You earned ${completion.scorePoints} point(s).',
       );
-      await _load();
+      await _refreshAll();
     } catch (error) {
       if (mounted) {
         showMessage(context, ApiException.from(error).message, error: true);
@@ -272,90 +338,74 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool initialLoading = _sections.values.every(
+      (_TodoSectionPageState state) => state.loading && state.items.isEmpty,
+    );
+    final bool hasTasks = _sections.values.any(
+      (_TodoSectionPageState state) => state.items.isNotEmpty,
+    );
+    Object? globalError;
+    if (!hasTasks) {
+      for (final _TodoSectionPageState state in _sections.values) {
+        if (state.error != null) {
+          globalError = state.error;
+          break;
+        }
+      }
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFFFF8FF),
       body: RefreshIndicator(
-        onRefresh: _load,
-        child: FutureBuilder<List<TaskListItem>>(
-          future: _future,
-          builder: (
-            BuildContext context,
-            AsyncSnapshot<List<TaskListItem>> snapshot,
-          ) {
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              return const _TodoLoadingView();
-            }
-            if (snapshot.hasError) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: <Widget>[
-                  SizedBox(
-                    height: MediaQuery.sizeOf(context).height * 0.65,
-                    child: AppErrorView(error: snapshot.error!, onRetry: _load),
-                  ),
-                ],
-              );
-            }
-
-            final List<TaskListItem> tasks =
-                snapshot.data ?? const <TaskListItem>[];
-            final Map<TodoSectionKind, List<TaskListItem>> grouped =
-                <TodoSectionKind, List<TaskListItem>>{
-              for (final TodoSectionKind kind in TodoSectionKind.values)
-                kind: sortTodoTasks(
-                  tasks.where(
-                      (TaskListItem item) => todoSectionFor(item) == kind),
-                ),
-            };
-            final bool hasTasks = tasks.isNotEmpty;
-
-            return ListView(
-              key: const PageStorageKey<String>('todo-v2-list'),
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(18, 12, 10, 118),
-              children: <Widget>[
-                if (!hasTasks)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 120, right: 8),
-                    child: EmptyState(
-                      icon: Icons.task_alt,
-                      title: 'No tasks yet',
-                      message: 'Tap + to create your first task.',
-                    ),
+        onRefresh: _refreshAll,
+        child: initialLoading
+            ? const _TodoLoadingView()
+            : globalError != null
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: <Widget>[
+                      SizedBox(
+                        height: MediaQuery.sizeOf(context).height * 0.65,
+                        child: AppErrorView(
+                          error: globalError,
+                          onRetry: _refreshAll,
+                        ),
+                      ),
+                    ],
                   )
-                else
-                  for (int index = 0;
-                      index < TodoSectionKind.values.length;
-                      index++) ...<Widget>[
-                    TodoTaskSection(
-                      kind: TodoSectionKind.values[index],
-                      tasks: grouped[TodoSectionKind.values[index]]!,
-                      expanded: _expandedSections.contains(
-                        TodoSectionKind.values[index],
-                      ),
-                      onToggle: () => _toggleSection(
-                        TodoSectionKind.values[index],
-                      ),
-                      onOpenTask: _open,
-                      onToggleCompletion: _handleStatusAction,
-                    ),
-                    if (index != TodoSectionKind.values.length - 1)
-                      const SizedBox(height: 23),
-                  ],
-                if (_busyTaskId != null) ...<Widget>[
-                  const SizedBox(height: 18),
-                  const Center(
-                    child: SizedBox.square(
-                      dimension: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
-                    ),
+                : ListView(
+                    key: const PageStorageKey<String>('todo-v2-list'),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(18, 12, 10, 118),
+                    children: <Widget>[
+                      if (!hasTasks)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 120, right: 8),
+                          child: EmptyState(
+                            icon: Icons.task_alt,
+                            title: 'No tasks yet',
+                            message: 'Tap + to create your first task.',
+                          ),
+                        )
+                      else
+                        for (int index = 0;
+                            index < TodoSectionKind.values.length;
+                            index++) ...<Widget>[
+                          _buildSection(TodoSectionKind.values[index]),
+                          if (index != TodoSectionKind.values.length - 1)
+                            const SizedBox(height: 23),
+                        ],
+                      if (_busyTaskId != null) ...<Widget>[
+                        const SizedBox(height: 18),
+                        const Center(
+                          child: SizedBox.square(
+                            dimension: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
-                ],
-              ],
-            );
-          },
-        ),
       ),
       floatingActionButton: FloatingActionButton(
         key: const Key('todo-create-button'),
@@ -368,6 +418,39 @@ final class _TasksScreenState extends ConsumerState<TasksScreen> {
       ),
     );
   }
+
+  Widget _buildSection(TodoSectionKind kind) {
+    final _TodoSectionPageState state = _sections[kind]!;
+    return TodoTaskSection(
+      kind: kind,
+      tasks: state.items,
+      totalCount: state.totalCount,
+      expanded: _expandedSections.contains(kind),
+      initialLoading: state.loading,
+      error: state.error,
+      hasMore: state.page < state.totalPages,
+      isLoadingMore: state.loadingMore,
+      paginationError: state.loadMoreError,
+      onToggle: () => _toggleSection(kind),
+      onOpenTask: _open,
+      onToggleCompletion: _handleStatusAction,
+      onRetry: () => unawaited(_loadSection(kind, reset: true)),
+      onLoadMore: () => unawaited(_loadSection(kind, reset: false)),
+    );
+  }
+}
+
+final class _TodoSectionPageState {
+  List<TaskListItem> items = const <TaskListItem>[];
+  int page = 0;
+  int totalPages = 1;
+  int totalCount = 0;
+  int generation = 0;
+  bool refreshing = false;
+  bool loading = false;
+  bool loadingMore = false;
+  Object? error;
+  Object? loadMoreError;
 }
 
 final class _TodoLoadingView extends StatelessWidget {

@@ -220,3 +220,61 @@ final class UserAvatar extends StatelessWidget {
     );
   }
 }
+
+final class AppPaginationFooter extends StatelessWidget {
+  const AppPaginationFooter({
+    required this.hasMore,
+    required this.isLoading,
+    this.error,
+    this.onLoadMore,
+    super.key,
+  });
+
+  final bool hasMore;
+  final bool isLoading;
+  final Object? error;
+  final VoidCallback? onLoadMore;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 18),
+        child: Center(
+          child: SizedBox.square(
+            dimension: 24,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ),
+      );
+    }
+
+    if (error != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Center(
+          child: OutlinedButton.icon(
+            onPressed: onLoadMore,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Try loading more again'),
+          ),
+        ),
+      );
+    }
+
+    if (!hasMore) {
+      return const SizedBox(height: 12);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: TextButton.icon(
+          onPressed: onLoadMore,
+          icon: const Icon(Icons.expand_more),
+          label: const Text('Load more'),
+        ),
+      ),
+    );
+  }
+}

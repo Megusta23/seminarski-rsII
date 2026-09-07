@@ -46,6 +46,7 @@ public sealed class ChatService(
         var conversations = await query
             .OrderByDescending(item => item.LastMessageAtUtc)
             .ThenByDescending(item => item.CreatedAtUtc)
+            .ThenByDescending(item => item.Id)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .ToArrayAsync(cancellationToken);

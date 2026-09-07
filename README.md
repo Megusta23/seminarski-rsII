@@ -33,8 +33,8 @@ Sistem se sastoji od:
 * Aktivacija i deaktivacija korisnika
 * CRUD operacije nad referentnim podacima
 * Moderacija objava
-* PDF izvještaj o aktivnostima aplikacije
-* PDF izvještaj za pojedinačnog korisnika
+* PDF izvještaj o aktivnostima aplikacije uz spremanje i ispis
+* PDF izvještaj za pojedinačnog korisnika uz spremanje i ispis
 
 ## Preduslovi
 
@@ -227,6 +227,7 @@ Primjeri:
 ./scripts/test-tasks.sh
 ./scripts/test-feed-v2.sh
 ./scripts/test-review-chat-notifications.sh
+./scripts/test-review-pagination-print.sh
 ./scripts/test-admin-reports.sh
 ```
 
@@ -234,6 +235,12 @@ Direct razgovor ostaje čitljiv nakon uklanjanja prijateljstva, ali je slanje
 novih poruka blokirano dok korisnici ponovo ne postanu prijatelji. Otvorena
 lista obavijesti automatski se osvježava periodičnim pollingom, bez obaveznog
 pull-to-refresh poteza.
+
+Razgovori, starije chat poruke i obavijesti imaju stvarni load-more tok. To-do
+ekran učitava zasebne, ograničene stranice za To-do's, Dailies i Habits,
+umjesto kompletne historije. Referentni lookup endpointi imaju page/pageSize
+ograničenje, a oba administratorska PDF izvještaja imaju odvojene opcije za
+spremanje i otvaranje sistemskog Print dijaloga.
 
 ## Sistem preporuke
 

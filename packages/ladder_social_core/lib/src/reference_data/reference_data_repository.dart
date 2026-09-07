@@ -6,14 +6,49 @@ final class ReferenceDataRepository {
 
   final ReferenceDataApiService _apiService;
 
-  Future<List<CountryItem>> getCountries() => _apiService.getCountries();
+  Future<List<CountryItem>> getCountries({
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _apiService.getCountries(
+        search: search,
+        page: page,
+        pageSize: pageSize,
+      );
 
-  Future<List<CityItem>> getCities({String? countryId}) =>
-      _apiService.getCities(countryId: countryId);
+  Future<List<CityItem>> getCities({
+    String? countryId,
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _apiService.getCities(
+        countryId: countryId,
+        search: search,
+        page: page,
+        pageSize: pageSize,
+      );
 
-  Future<List<ReferenceItem>> getTaskCategories() =>
-      _apiService.getTaskCategories();
+  Future<List<ReferenceItem>> getTaskCategories({
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _apiService.getTaskCategories(
+        search: search,
+        page: page,
+        pageSize: pageSize,
+      );
 
-  Future<List<ReferenceItem>> getRecurrenceTypes() =>
-      _apiService.getRecurrenceTypes();
+  Future<List<ReferenceItem>> getRecurrenceTypes({
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _apiService.getRecurrenceTypes(
+        search: search,
+        page: page,
+        pageSize: pageSize,
+      );
 }

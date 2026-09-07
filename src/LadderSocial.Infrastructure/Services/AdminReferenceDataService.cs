@@ -22,6 +22,7 @@ public sealed class AdminReferenceDataService(ApplicationDbContext dbContext) : 
         var items = await query
             .OrderBy(item => item.SortOrder)
             .ThenBy(item => item.Name)
+            .ThenBy(item => item.Id)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .Select(item => new AdminCountryResponse(
@@ -144,6 +145,7 @@ public sealed class AdminReferenceDataService(ApplicationDbContext dbContext) : 
         var items = await query
             .OrderBy(item => item.City.SortOrder)
             .ThenBy(item => item.City.Name)
+            .ThenBy(item => item.City.Id)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .Select(item => new AdminCityResponse(
@@ -401,6 +403,7 @@ public sealed class AdminReferenceDataService(ApplicationDbContext dbContext) : 
         var items = await query
             .OrderBy(item => item.SortOrder)
             .ThenBy(item => item.Name)
+            .ThenBy(item => item.Id)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .Select(item => new AdminReferenceItemResponse(

@@ -24,7 +24,29 @@ public sealed class TaskService(
         CancellationToken cancellationToken)
     {
         var userId = RequireCurrentUserId();
-        var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var currentBusinessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
+        var businessDate = request.BusinessDate ?? currentBusinessDate;
+        if (businessDate > currentBusinessDate)
+        {
+            throw new ValidationException(
+                "Task list validation failed.",
+                new Dictionary<string, string[]>
+                {
+                    ["businessDate"] = ["The task board date cannot be in the future."]
+                });
+        }
+
+        if (request.Section.HasValue &&
+            !Enum.IsDefined(typeof(TaskBoardSection), request.Section.Value))
+        {
+            throw new ValidationException(
+                "Task list validation failed.",
+                new Dictionary<string, string[]>
+                {
+                    ["section"] = ["Select a supported task board section."]
+                });
+        }
+
         if (request.Status.HasValue)
         {
             taskStateMachine.ValidateDefinedStatus(request.Status.Value);
@@ -76,6 +98,28 @@ public sealed class TaskService(
             query = query.Where(item => item.Task.RecurrenceTypeId == request.RecurrenceTypeId.Value);
         }
 
+        if (request.Section.HasValue)
+        {
+            query = request.Section.Value switch
+            {
+                TaskBoardSection.Todo => query.Where(item =>
+                    item.Recurrence.Code == RecurrenceCodes.None),
+                TaskBoardSection.Daily => query.Where(item =>
+                    item.Recurrence.Code == RecurrenceCodes.Daily),
+                TaskBoardSection.Habit => query.Where(item =>
+                    item.Recurrence.Code == RecurrenceCodes.Weekly ||
+                    item.Recurrence.Code == RecurrenceCodes.Monthly),
+                _ => query
+            };
+
+            if (!request.Status.HasValue)
+            {
+                query = query.Where(item =>
+                    item.Task.Status == TaskItemStatus.Active ||
+                    item.Task.Status == TaskItemStatus.Completed);
+            }
+        }
+
         if (request.Status.HasValue)
         {
             query = query.Where(item => item.Task.Status == request.Status.Value);
@@ -93,14 +137,25 @@ public sealed class TaskService(
 
         query = (request.SortBy?.Trim().ToLowerInvariant(), request.SortDirection?.Trim().ToLowerInvariant()) switch
         {
-            ("title", "desc") => query.OrderByDescending(item => item.Task.Title),
-            ("title", _) => query.OrderBy(item => item.Task.Title),
-            ("createdatutc", "asc") => query.OrderBy(item => item.Task.CreatedAtUtc),
-            ("createdatutc", _) => query.OrderByDescending(item => item.Task.CreatedAtUtc),
-            ("dueatutc", "desc") => query.OrderByDescending(item => item.Task.DueAtUtc),
+            ("title", "desc") => query
+                .OrderByDescending(item => item.Task.Title)
+                .ThenByDescending(item => item.Task.Id),
+            ("title", _) => query
+                .OrderBy(item => item.Task.Title)
+                .ThenBy(item => item.Task.Id),
+            ("createdatutc", "asc") => query
+                .OrderBy(item => item.Task.CreatedAtUtc)
+                .ThenBy(item => item.Task.Id),
+            ("createdatutc", _) => query
+                .OrderByDescending(item => item.Task.CreatedAtUtc)
+                .ThenByDescending(item => item.Task.Id),
+            ("dueatutc", "desc") => query
+                .OrderByDescending(item => item.Task.DueAtUtc)
+                .ThenByDescending(item => item.Task.Id),
             _ => query.OrderBy(item => item.Task.DueAtUtc == null)
                 .ThenBy(item => item.Task.DueAtUtc)
                 .ThenByDescending(item => item.Task.CreatedAtUtc)
+                .ThenByDescending(item => item.Task.Id)
         };
 
         var totalCount = await query.CountAsync(cancellationToken);

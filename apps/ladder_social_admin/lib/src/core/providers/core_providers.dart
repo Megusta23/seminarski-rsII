@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ladder_social_admin/src/features/auth/application/admin_auth_controller.dart';
 import 'package:ladder_social_admin/src/features/auth/application/admin_auth_state.dart';
+import 'package:ladder_social_admin/src/features/reports/application/report_print_service.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 
 final Provider<TokenStore> tokenStoreProvider = Provider<TokenStore>(
@@ -40,6 +41,10 @@ final Provider<AdminRepository> adminRepositoryProvider = Provider<AdminReposito
 );
 final Provider<MediaRepository> mediaRepositoryProvider = Provider<MediaRepository>(
   (Ref ref) => MediaRepository(ref.watch(apiClientProvider)),
+);
+final Provider<ReportPrintService> reportPrintServiceProvider =
+    Provider<ReportPrintService>(
+  (Ref ref) => const NativeReportPrintService(),
 );
 
 final StateNotifierProvider<AdminAuthController, AdminAuthState>

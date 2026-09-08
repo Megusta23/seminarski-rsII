@@ -21,20 +21,32 @@ final class NotificationsScreen extends ConsumerStatefulWidget {
 
 final class _NotificationsScreenState
     extends ConsumerState<NotificationsScreen> with WidgetsBindingObserver {
+  static const int _pageSize = 20;
+
+  final ScrollController _scrollController = ScrollController();
   Timer? _pollTimer;
   List<AppNotification> _items = const <AppNotification>[];
   bool? _isRead;
   bool _didInitialize = false;
   bool _isLoading = true;
   bool _isRefreshing = false;
+  bool _loadingMore = false;
   bool _reloadQueued = false;
   bool _queuedShowLoading = false;
+  bool _queuedResetPagination = false;
+  int _page = 0;
+  int _totalPages = 1;
+  int _queryGeneration = 0;
   Object? _error;
+  Object? _loadMoreError;
+
+  bool get _hasMore => _page < _totalPages;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scrollController.addListener(_handleScroll);
   }
 
   @override
@@ -46,7 +58,7 @@ final class _NotificationsScreenState
 
     _didInitialize = true;
     _startPolling();
-    unawaited(_load());
+    unawaited(_load(resetPagination: true));
   }
 
   @override
@@ -64,8 +76,18 @@ final class _NotificationsScreenState
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _handleScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.extentAfter < 320) {
+      unawaited(_loadMore());
+    }
   }
 
   void _startPolling() {
@@ -76,14 +98,21 @@ final class _NotificationsScreenState
     );
   }
 
-  Future<void> _load({bool showLoading = false}) async {
+  Future<void> _load({
+    bool showLoading = false,
+    bool resetPagination = false,
+  }) async {
     if (!mounted) {
       return;
     }
 
+    final int generation =
+        resetPagination ? ++_queryGeneration : _queryGeneration;
     if (_isRefreshing) {
       _reloadQueued = true;
       _queuedShowLoading = _queuedShowLoading || showLoading;
+      _queuedResetPagination =
+          _queuedResetPagination || resetPagination;
       return;
     }
 
@@ -98,19 +127,33 @@ final class _NotificationsScreenState
     try {
       final PagedResult<AppNotification> result = await ref
           .read(notificationRepositoryProvider)
-          .getNotifications(isRead: _isRead);
-      if (!mounted) {
+          .getNotifications(
+            isRead: _isRead,
+            page: 1,
+            pageSize: _pageSize,
+          );
+      if (!mounted || generation != _queryGeneration) {
         return;
       }
 
+      final List<AppNotification> updated = resetPagination
+          ? List<AppNotification>.unmodifiable(result.items)
+          : mergeUniqueItems<AppNotification>(
+              current: _items,
+              updates: result.items,
+              keyOf: (AppNotification item) => item.id,
+              compare: _compareNotifications,
+            );
       setState(() {
-        _items = List<AppNotification>.unmodifiable(result.items);
+        _items = updated;
+        _page = resetPagination ? result.page : (_page < 1 ? 1 : _page);
+        _totalPages = result.totalPages;
         _isLoading = false;
         _error = null;
       });
       ref.invalidate(notificationSummaryProvider);
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || generation != _queryGeneration) {
         return;
       }
 
@@ -124,11 +167,65 @@ final class _NotificationsScreenState
       _isRefreshing = false;
       if (_reloadQueued && mounted) {
         final bool queuedShowLoading = _queuedShowLoading;
+        final bool queuedResetPagination = _queuedResetPagination;
         _reloadQueued = false;
         _queuedShowLoading = false;
-        unawaited(_load(showLoading: queuedShowLoading));
+        _queuedResetPagination = false;
+        unawaited(
+          _load(
+            showLoading: queuedShowLoading,
+            resetPagination: queuedResetPagination,
+          ),
+        );
       }
     }
+  }
+
+  Future<void> _loadMore() async {
+    if (_isLoading || _loadingMore || !_hasMore) {
+      return;
+    }
+
+    final int generation = _queryGeneration;
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
+    try {
+      final PagedResult<AppNotification> result = await ref
+          .read(notificationRepositoryProvider)
+          .getNotifications(
+            isRead: _isRead,
+            page: _page + 1,
+            pageSize: _pageSize,
+          );
+      if (!mounted || generation != _queryGeneration) {
+        return;
+      }
+      setState(() {
+        _items = mergeUniqueItems<AppNotification>(
+          current: _items,
+          updates: result.items,
+          keyOf: (AppNotification item) => item.id,
+          compare: _compareNotifications,
+        );
+        _page = result.page;
+        _totalPages = result.totalPages;
+      });
+    } catch (error) {
+      if (mounted && generation == _queryGeneration) {
+        setState(() => _loadMoreError = error);
+      }
+    } finally {
+      if (mounted && generation == _queryGeneration) {
+        setState(() => _loadingMore = false);
+      }
+    }
+  }
+
+  int _compareNotifications(AppNotification left, AppNotification right) {
+    final int time = right.createdAtUtc.compareTo(left.createdAtUtc);
+    return time != 0 ? time : right.id.compareTo(left.id);
   }
 
   Future<void> _markAll() async {
@@ -136,7 +233,7 @@ final class _NotificationsScreenState
       await ref.read(notificationRepositoryProvider).markAllRead();
       if (mounted) {
         showMessage(context, 'All notifications marked as read.');
-        await _load();
+        await _load(resetPagination: true);
       }
     } catch (error) {
       if (mounted) {
@@ -153,13 +250,25 @@ final class _NotificationsScreenState
     try {
       await ref.read(notificationRepositoryProvider).markRead(notification.id);
       if (mounted) {
-        await _load();
+        await _load(resetPagination: true);
       }
     } catch (error) {
       if (mounted) {
         showMessage(context, ApiException.from(error).message, error: true);
       }
     }
+  }
+
+  void _changeFilter(bool? value) {
+    setState(() {
+      _isRead = value;
+      _items = const <AppNotification>[];
+      _page = 0;
+      _totalPages = 1;
+      _loadingMore = false;
+      _loadMoreError = null;
+    });
+    unawaited(_load(showLoading: true, resetPagination: true));
   }
 
   IconData _icon(int kind) => switch (kind) {
@@ -184,8 +293,9 @@ final class _NotificationsScreenState
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: () => _load(resetPagination: true),
         child: ListView(
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: <Widget>[
@@ -196,10 +306,8 @@ final class _NotificationsScreenState
                 ButtonSegment<bool?>(value: true, label: Text('Read')),
               ],
               selected: <bool?>{_isRead},
-              onSelectionChanged: (Set<bool?> values) {
-                setState(() => _isRead = values.first);
-                unawaited(_load(showLoading: true));
-              },
+              onSelectionChanged: (Set<bool?> values) =>
+                  _changeFilter(values.first),
             ),
             const SizedBox(height: 12),
             if (_isLoading)
@@ -209,42 +317,44 @@ final class _NotificationsScreenState
                   child: CircularProgressIndicator(),
                 ),
               )
-            else if (_error != null)
+            else if (_error != null && _items.isEmpty)
               AppErrorView(
                 error: _error!,
-                onRetry: () => unawaited(_load(showLoading: true)),
+                onRetry: () => unawaited(
+                  _load(showLoading: true, resetPagination: true),
+                ),
               )
             else if (_items.isEmpty)
               const EmptyState(
                 icon: Icons.notifications_none,
                 title: 'No notifications',
               )
-            else
-              Column(
-                children: _items
-                    .map(
-                      (AppNotification item) => Card(
-                        color: item.isRead
-                            ? null
-                            : Theme.of(context)
-                                .colorScheme
-                                .primaryContainer,
-                        child: ListTile(
-                          onTap: () => _mark(item),
-                          leading: Icon(_icon(item.kind)),
-                          title: Text(item.title),
-                          subtitle: Text(
-                            '${item.body}\n${formatDateTime(item.createdAtUtc)}',
-                          ),
-                          isThreeLine: true,
-                          trailing: item.isRead
-                              ? const Icon(Icons.done, size: 18)
-                              : const Icon(Icons.circle, size: 12),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
+            else ...<Widget>[
+              for (final AppNotification item in _items)
+                Card(
+                  color: item.isRead
+                      ? null
+                      : Theme.of(context).colorScheme.primaryContainer,
+                  child: ListTile(
+                    onTap: () => unawaited(_mark(item)),
+                    leading: Icon(_icon(item.kind)),
+                    title: Text(item.title),
+                    subtitle: Text(
+                      '${item.body}\n${formatDateTime(item.createdAtUtc)}',
+                    ),
+                    isThreeLine: true,
+                    trailing: item.isRead
+                        ? const Icon(Icons.done, size: 18)
+                        : const Icon(Icons.circle, size: 12),
+                  ),
+                ),
+              AppPaginationFooter(
+                hasMore: _hasMore,
+                isLoading: _loadingMore,
+                error: _loadMoreError,
+                onLoadMore: () => unawaited(_loadMore()),
               ),
+            ],
           ],
         ),
       ),

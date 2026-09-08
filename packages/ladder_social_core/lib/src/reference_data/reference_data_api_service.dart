@@ -8,28 +8,77 @@ final class ReferenceDataApiService {
 
   final ApiClient _apiClient;
 
-  Future<List<CountryItem>> getCountries() => _getList<CountryItem>(
+  Future<List<CountryItem>> getCountries({
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _getList<CountryItem>(
         '/api/reference-data/countries',
         CountryItem.fromJson,
+        queryParameters: _pageQuery(
+          search: search,
+          page: page,
+          pageSize: pageSize,
+        ),
       );
 
-  Future<List<CityItem>> getCities({String? countryId}) => _getList<CityItem>(
+  Future<List<CityItem>> getCities({
+    String? countryId,
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _getList<CityItem>(
         '/api/reference-data/cities',
         CityItem.fromJson,
         queryParameters: <String, dynamic>{
+          ..._pageQuery(search: search, page: page, pageSize: pageSize),
           if (countryId != null) 'countryId': countryId,
         },
       );
 
-  Future<List<ReferenceItem>> getTaskCategories() => _getList<ReferenceItem>(
+  Future<List<ReferenceItem>> getTaskCategories({
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _getList<ReferenceItem>(
         '/api/reference-data/task-categories',
         ReferenceItem.fromJson,
+        queryParameters: _pageQuery(
+          search: search,
+          page: page,
+          pageSize: pageSize,
+        ),
       );
 
-  Future<List<ReferenceItem>> getRecurrenceTypes() => _getList<ReferenceItem>(
+  Future<List<ReferenceItem>> getRecurrenceTypes({
+    String? search,
+    int page = 1,
+    int pageSize = 100,
+  }) =>
+      _getList<ReferenceItem>(
         '/api/reference-data/recurrence-types',
         ReferenceItem.fromJson,
+        queryParameters: _pageQuery(
+          search: search,
+          page: page,
+          pageSize: pageSize,
+        ),
       );
+
+  Map<String, dynamic> _pageQuery({
+    required int page,
+    required int pageSize,
+    String? search,
+  }) =>
+      <String, dynamic>{
+        'page': page,
+        'pageSize': pageSize,
+        if (search != null && search.trim().isNotEmpty)
+          'search': search.trim(),
+      };
 
   Future<List<T>> _getList<T>(
     String path,

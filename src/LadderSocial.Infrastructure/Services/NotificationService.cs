@@ -37,6 +37,7 @@ public sealed class NotificationService(
         var totalCount = await query.CountAsync(cancellationToken);
         var items = await query
             .OrderByDescending(item => item.CreatedAtUtc)
+            .ThenByDescending(item => item.Id)
             .Skip((request.Page - 1) * request.PageSize)
             .Take(request.PageSize)
             .Select(item => new NotificationResponse(

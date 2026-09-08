@@ -256,11 +256,19 @@ final class TaskDraft {
   }
 }
 
+abstract final class TaskBoardSection {
+  static const int todo = 1;
+  static const int daily = 2;
+  static const int habit = 3;
+}
+
 final class TaskQuery {
   const TaskQuery({
     this.search,
     this.categoryId,
     this.recurrenceTypeId,
+    this.section,
+    this.businessDate,
     this.status,
     this.dueFromUtc,
     this.dueToUtc,
@@ -273,6 +281,8 @@ final class TaskQuery {
   final String? search;
   final String? categoryId;
   final String? recurrenceTypeId;
+  final int? section;
+  final DateTime? businessDate;
   final int? status;
   final DateTime? dueFromUtc;
   final DateTime? dueToUtc;
@@ -285,6 +295,8 @@ final class TaskQuery {
         if (search != null && search!.trim().isNotEmpty) 'search': search!.trim(),
         if (categoryId != null) 'categoryId': categoryId,
         if (recurrenceTypeId != null) 'recurrenceTypeId': recurrenceTypeId,
+        if (section != null) 'section': section,
+        if (businessDate != null) 'businessDate': dateOnlyString(businessDate!),
         if (status != null) 'status': status,
         if (dueFromUtc != null) 'dueFromUtc': dueFromUtc!.toUtc().toIso8601String(),
         if (dueToUtc != null) 'dueToUtc': dueToUtc!.toUtc().toIso8601String(),

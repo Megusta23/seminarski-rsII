@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
+import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
 import 'package:ladder_social_mobile/src/features/tasks/presentation/todo_visuals.dart';
 
 final class TodoTaskSection extends StatelessWidget {
@@ -10,13 +11,29 @@ final class TodoTaskSection extends StatelessWidget {
     required this.onToggle,
     required this.onOpenTask,
     required this.onToggleCompletion,
+    this.totalCount,
+    this.initialLoading = false,
+    this.error,
+    this.hasMore = false,
+    this.isLoadingMore = false,
+    this.paginationError,
+    this.onRetry,
+    this.onLoadMore,
     super.key,
   });
 
   final TodoSectionKind kind;
   final List<TaskListItem> tasks;
+  final int? totalCount;
   final bool expanded;
+  final bool initialLoading;
+  final Object? error;
+  final bool hasMore;
+  final bool isLoadingMore;
+  final Object? paginationError;
   final VoidCallback onToggle;
+  final VoidCallback? onRetry;
+  final VoidCallback? onLoadMore;
   final ValueChanged<TaskListItem> onOpenTask;
   final ValueChanged<TaskListItem> onToggleCompletion;
 
@@ -28,7 +45,7 @@ final class TodoTaskSection extends StatelessWidget {
         _TodoSectionHeader(
           key: Key('todo-section-header-${kind.name}'),
           kind: kind,
-          count: tasks.length,
+          count: totalCount ?? tasks.length,
           expanded: expanded,
           onTap: onToggle,
         ),
@@ -39,26 +56,54 @@ final class TodoTaskSection extends StatelessWidget {
           child: expanded
               ? Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: tasks.isEmpty
-                      ? _TodoEmptySection(kind: kind)
-                      : Column(
-                          children: <Widget>[
-                            for (int index = 0; index < tasks.length; index++)
-                              Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: index == tasks.length - 1 ? 0 : 7,
-                                ),
-                                child: TodoTaskRow(
-                                  key: Key('todo-task-${tasks[index].id}'),
-                                  task: tasks[index],
-                                  isLast: index == tasks.length - 1,
-                                  onOpen: () => onOpenTask(tasks[index]),
-                                  onToggleCompletion: () =>
-                                      onToggleCompletion(tasks[index]),
-                                ),
+                  child: initialLoading && tasks.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 18),
+                          child: Center(
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ),
+                        )
+                      : error != null && tasks.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: AppErrorView(
+                                error: error!,
+                                onRetry: onRetry,
                               ),
-                          ],
-                        ),
+                            )
+                          : tasks.isEmpty
+                              ? _TodoEmptySection(kind: kind)
+                              : Column(
+                                  children: <Widget>[
+                                    for (int index = 0;
+                                        index < tasks.length;
+                                        index++)
+                                      Padding(
+                                        padding: EdgeInsets.only(
+                                          bottom: index == tasks.length - 1
+                                              ? 0
+                                              : 7,
+                                        ),
+                                        child: TodoTaskRow(
+                                          key: Key(
+                                            'todo-task-${tasks[index].id}',
+                                          ),
+                                          task: tasks[index],
+                                          isLast: index == tasks.length - 1,
+                                          onOpen: () =>
+                                              onOpenTask(tasks[index]),
+                                          onToggleCompletion: () =>
+                                              onToggleCompletion(tasks[index]),
+                                        ),
+                                      ),
+                                    AppPaginationFooter(
+                                      hasMore: hasMore,
+                                      isLoading: isLoadingMore,
+                                      error: paginationError,
+                                      onLoadMore: onLoadMore,
+                                    ),
+                                  ],
+                                ),
                 )
               : const SizedBox.shrink(),
         ),

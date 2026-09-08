@@ -1,4 +1,5 @@
 import 'package:ladder_social_core/src/models/paged_result.dart';
+import 'package:ladder_social_core/src/tasks/proof_gallery_models.dart';
 import 'package:ladder_social_core/src/tasks/task_api_service.dart';
 import 'package:ladder_social_core/src/tasks/task_models.dart';
 
@@ -20,15 +21,28 @@ final class TaskRepository {
     required DateTime occurrenceDate,
     String? note,
     String? caption,
+    String? proofLayoutCode,
     ImageUpload? proof,
+    List<ImageUpload> proofImages = const <ImageUpload>[],
   }) =>
       _api.completeTask(
         taskId: taskId,
         occurrenceDate: occurrenceDate,
         note: note,
         caption: caption,
+        proofLayoutCode: proofLayoutCode,
         proof: proof,
+        proofImages: proofImages,
       );
+
+  Future<ProofGallery> getProofGalleryByMedia(String primaryMediaId) =>
+      _api.getProofGalleryByMedia(primaryMediaId);
+
+  Future<ProofGallery> getProofGalleryByPost(String postId) =>
+      _api.getProofGalleryByPost(postId);
+
+  Future<List<int>> getProofGalleryItemBytes(String path) =>
+      _api.getProofGalleryItemBytes(path);
   Future<PagedResult<TaskCompletionItem>> getCompletions(
     String taskId, {
     int page = 1,

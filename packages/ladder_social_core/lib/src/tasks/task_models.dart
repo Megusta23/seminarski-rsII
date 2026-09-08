@@ -78,6 +78,8 @@ final class TaskCompletionItem {
     this.proofMediaId,
     this.proofUrl,
     this.postId,
+    this.proofLayoutCode,
+    this.proofImageCount = 0,
   });
 
   factory TaskCompletionItem.fromJson(Map<String, dynamic> json) {
@@ -91,6 +93,10 @@ final class TaskCompletionItem {
       proofMediaId: nullableString(json['proofMediaId']),
       proofUrl: nullableString(json['proofUrl']),
       postId: nullableString(json['postId']),
+      proofLayoutCode: nullableString(json['proofLayoutCode']),
+      proofImageCount: json['proofImageCount'] == null
+          ? (json['proofMediaId'] == null ? 0 : 1)
+          : requiredInt(json, 'proofImageCount'),
     );
   }
 
@@ -103,6 +109,8 @@ final class TaskCompletionItem {
   final String? proofMediaId;
   final String? proofUrl;
   final String? postId;
+  final String? proofLayoutCode;
+  final int proofImageCount;
 }
 
 final class TaskDetail {

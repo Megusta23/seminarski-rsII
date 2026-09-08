@@ -277,3 +277,7 @@ Potpuno brisanje lokalnih Docker podataka koristiti samo kada se namjerno želi 
 ```bash
 docker compose --env-file .env down -v
 ```
+
+## Dokaz zadatka sa više fotografija
+
+Mobilna aplikacija podržava dokaz završetka zadatka sa jednom do četiri fotografije. Korisnik bira raspored, uređuje fotografije (rotacija, kvadratni crop i tekst preko slike), pregleda konačnu kompoziciju i tek zatim šalje dokaz. Backend ponovo validira layout, broj fotografija, veličinu, MIME tip i magic bytes. Tehnički opis nalazi se u `docs/multi-photo-proof.md`.

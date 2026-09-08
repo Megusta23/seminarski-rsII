@@ -29,4 +29,44 @@ public static class FormFileReader
             Path.GetFileName(file.FileName),
             file.ContentType ?? string.Empty);
     }
+
+    public static async Task<IReadOnlyList<UploadPayload>> ReadManyAsync(
+        IEnumerable<IFormFile> files,
+        int maximumCount,
+        long maximumTotalBytes,
+        CancellationToken cancellationToken)
+    {
+        var materialized = files.ToArray();
+        if (materialized.Length > maximumCount)
+        {
+            throw new ValidationException(
+                "File validation failed.",
+                new Dictionary<string, string[]>
+                {
+                    ["proofImages"] = [$"Select at most {maximumCount} proof images."]
+                });
+        }
+
+        var totalBytes = materialized.Sum(file => file.Length);
+        if (totalBytes > maximumTotalBytes)
+        {
+            throw new ValidationException(
+                "File validation failed.",
+                new Dictionary<string, string[]>
+                {
+                    ["proofImages"] =
+                    [
+                        $"The combined proof images may contain at most {maximumTotalBytes / (1024 * 1024)} MB."
+                    ]
+                });
+        }
+
+        var uploads = new List<UploadPayload>(materialized.Length);
+        foreach (var file in materialized)
+        {
+            uploads.Add(await ReadAsync(file, cancellationToken));
+        }
+
+        return uploads;
+    }
 }

@@ -28,3 +28,5 @@ export 'src/storage/token_store.dart';
 export 'src/tasks/task_api_service.dart';
 export 'src/tasks/task_models.dart';
 export 'src/tasks/task_repository.dart';
+
+export 'src/tasks/proof_gallery_models.dart';

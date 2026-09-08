@@ -21,7 +21,7 @@ public sealed class ReportsController(IReportService reportService) : Controller
     }
 
     [HttpGet("users/{userId:guid}")]
-    public async Task<IActionResult> User(
+    public async Task<IActionResult> UserActivity(
         Guid userId,
         CancellationToken cancellationToken)
     {

@@ -212,7 +212,11 @@ public sealed class TaskService(
             .Take(10)
             .ToArrayAsync(cancellationToken);
         var recentCompletions = recentRows
-            .Select(item => MapCompletion(item.Completion, item.ProofMediaId, item.PostId))
+            .Select(item => MapCompletion(
+                item.Completion,
+                item.ProofMediaId,
+                item.PostId,
+                item.ProofImageCount))
             .ToArray();
         var businessDate = DateOnly.FromDateTime(dateTimeProvider.UtcNow);
 
@@ -414,23 +418,141 @@ public sealed class TaskService(
             throw new ConflictException("This task occurrence has already been completed.");
         }
 
-        if (task.Item.RequiresProofImage && command.ProofImage is null)
+        var sourceUploads = command.ProofImages?.ToArray() ?? [];
+        var hasAnyProof = command.ProofImage is not null || sourceUploads.Length > 0;
+        string? proofLayoutCode = null;
+
+        if (!hasAnyProof)
         {
-            throw new ValidationException(
-                "Task completion validation failed.",
-                new Dictionary<string, string[]>
-                {
-                    ["proofImage"] = ["This task requires a proof image before it can be completed."]
-                });
+            if (task.Item.RequiresProofImage)
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofImages"] = ["This task requires proof photos before it can be completed."]
+                    });
+            }
+
+            if (!string.IsNullOrWhiteSpace(command.ProofLayoutCode))
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofLayoutCode"] = ["A proof layout can only be selected when proof photos are supplied."]
+                    });
+            }
+        }
+        else
+        {
+            if (command.ProofImage is null)
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofImage"] = ["Upload the rendered proof cover image."]
+                    });
+            }
+
+            // Legacy single-image clients only submit ProofImage. Preserve that
+            // behavior by treating the cover as the single ordered source image.
+            if (sourceUploads.Length == 0)
+            {
+                sourceUploads = [command.ProofImage];
+            }
+
+            try
+            {
+                proofLayoutCode = ProofLayoutCodes.Normalize(
+                    string.IsNullOrWhiteSpace(command.ProofLayoutCode)
+                        ? ProofLayoutCodes.Single
+                        : command.ProofLayoutCode);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofLayoutCode"] = ["Select a supported proof layout."]
+                    });
+            }
+
+            var requiredPhotoCount = ProofLayoutCodes.RequiredPhotoCount(proofLayoutCode);
+            if (sourceUploads.Length != requiredPhotoCount)
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofImages"] =
+                        [
+                            $"The {proofLayoutCode} layout requires exactly {requiredPhotoCount} proof photo(s)."
+                        ]
+                    });
+            }
+
+            if (sourceUploads.Length > 4)
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofImages"] = ["A task proof may contain at most four photos."]
+                    });
+            }
+
+            const long maximumCombinedBytes = 20L * 1024 * 1024;
+            if (sourceUploads.Sum(upload => upload.Length) > maximumCombinedBytes)
+            {
+                throw new ValidationException(
+                    "Task completion validation failed.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["proofImages"] = ["The combined proof photos may contain at most 20 MB."]
+                    });
+            }
         }
 
-        StoredFileInfo? storedFile = null;
-        if (command.ProofImage is not null)
+        StoredFileInfo? storedCover = null;
+        var storedItems = new List<StoredFileInfo>(sourceUploads.Length);
+        try
         {
-            storedFile = await fileStorageService.SaveImageAsync(
-                $"task-proofs/{now:yyyy/MM}",
-                command.ProofImage,
-                cancellationToken);
+            if (command.ProofImage is not null)
+            {
+                storedCover = await fileStorageService.SaveImageAsync(
+                    $"task-proofs/{now:yyyy/MM}/covers",
+                    command.ProofImage,
+                    cancellationToken);
+            }
+
+            for (var index = 0; index < sourceUploads.Length; index++)
+            {
+                storedItems.Add(await fileStorageService.SaveImageAsync(
+                    $"task-proofs/{now:yyyy/MM}/items",
+                    sourceUploads[index],
+                    cancellationToken));
+            }
+        }
+        catch
+        {
+            if (storedCover is not null)
+            {
+                await fileStorageService.DeleteIfExistsAsync(
+                    storedCover.StorageKey,
+                    cancellationToken);
+            }
+
+            foreach (var storedItem in storedItems)
+            {
+                await fileStorageService.DeleteIfExistsAsync(
+                    storedItem.StorageKey,
+                    cancellationToken);
+            }
+
+            throw;
         }
 
         var completion = new TaskCompletion
@@ -440,9 +562,11 @@ public sealed class TaskService(
             OccurrenceDate = command.OccurrenceDate,
             CompletedAtUtc = now,
             ScorePoints = 1,
-            Note = string.IsNullOrWhiteSpace(command.Note) ? null : command.Note.Trim()
+            Note = string.IsNullOrWhiteSpace(command.Note) ? null : command.Note.Trim(),
+            ProofLayoutCode = proofLayoutCode
         };
         TaskProofMedia? proof = null;
+        var proofItems = new List<TaskProofItem>(storedItems.Count);
         Post? post = null;
         var notifications = new List<Notification>();
 
@@ -454,17 +578,37 @@ public sealed class TaskService(
                 await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
                 dbContext.TaskCompletions.Add(completion);
 
-                if (storedFile is not null)
+                if (storedCover is not null)
                 {
                     proof = new TaskProofMedia
                     {
                         TaskCompletionId = completion.Id,
                         OwnerUserId = userId,
-                        StorageKey = storedFile.StorageKey,
-                        MimeType = storedFile.ContentType,
-                        SizeBytes = storedFile.Length
+                        StorageKey = storedCover.StorageKey,
+                        MimeType = storedCover.ContentType,
+                        SizeBytes = storedCover.Length
                     };
                     dbContext.TaskProofMedia.Add(proof);
+                }
+
+                for (var index = 0; index < storedItems.Count; index++)
+                {
+                    var storedItem = storedItems[index];
+                    proofItems.Add(new TaskProofItem
+                    {
+                        TaskCompletionId = completion.Id,
+                        OwnerUserId = userId,
+                        StorageKey = storedItem.StorageKey,
+                        MimeType = storedItem.ContentType,
+                        SizeBytes = storedItem.Length,
+                        OrderIndex = index,
+                        LayoutSlot = index
+                    });
+                }
+
+                if (proofItems.Count > 0)
+                {
+                    dbContext.TaskProofItems.AddRange(proofItems);
                 }
 
                 if (task.Item.ShareWithFriends)
@@ -510,9 +654,18 @@ public sealed class TaskService(
         }
         catch
         {
-            if (storedFile is not null)
+            if (storedCover is not null)
             {
-                await fileStorageService.DeleteIfExistsAsync(storedFile.StorageKey, cancellationToken);
+                await fileStorageService.DeleteIfExistsAsync(
+                    storedCover.StorageKey,
+                    cancellationToken);
+            }
+
+            foreach (var storedItem in storedItems)
+            {
+                await fileStorageService.DeleteIfExistsAsync(
+                    storedItem.StorageKey,
+                    cancellationToken);
             }
 
             throw;
@@ -527,7 +680,11 @@ public sealed class TaskService(
                 cancellationToken);
         }
 
-        return MapCompletion(completion, proof?.Id, post?.Id);
+        return MapCompletion(
+            completion,
+            proof?.Id,
+            post?.Id,
+            proofItems.Count);
     }
 
     public async Task<PagedResult<TaskCompletionResponse>> GetCompletionsAsync(
@@ -551,7 +708,11 @@ public sealed class TaskService(
             .Take(request.PageSize)
             .ToArrayAsync(cancellationToken);
         var items = rows
-            .Select(item => MapCompletion(item.Completion, item.ProofMediaId, item.PostId))
+            .Select(item => MapCompletion(
+                item.Completion,
+                item.ProofMediaId,
+                item.PostId,
+                item.ProofImageCount))
             .ToArray();
 
         return new PagedResult<TaskCompletionResponse>(items, request.Page, request.PageSize, totalCount);
@@ -570,7 +731,8 @@ public sealed class TaskService(
         select new CompletionProjection(
             completion,
             media == null ? null : media.Id,
-            post == null ? null : post.Id);
+            post == null ? null : post.Id,
+            dbContext.TaskProofItems.Count(item => item.TaskCompletionId == completion.Id));
 
     private async Task<NormalizedTaskRequest> ValidateAndNormalizeAsync(
         string title,
@@ -662,7 +824,8 @@ public sealed class TaskService(
     private static TaskCompletionResponse MapCompletion(
         TaskCompletion completion,
         Guid? proofMediaId,
-        Guid? postId) =>
+        Guid? postId,
+        int proofImageCount) =>
         new(
             completion.Id,
             completion.TaskItemId,
@@ -672,7 +835,9 @@ public sealed class TaskService(
             completion.ScorePoints,
             proofMediaId,
             proofMediaId.HasValue ? $"/api/media/task-proofs/{proofMediaId.Value}" : null,
-            postId);
+            postId,
+            completion.ProofLayoutCode,
+            proofImageCount > 0 ? proofImageCount : proofMediaId.HasValue ? 1 : 0);
 
     private sealed record NormalizedTaskRequest(
         string Title,
@@ -682,5 +847,6 @@ public sealed class TaskService(
     private sealed record CompletionProjection(
         TaskCompletion Completion,
         Guid? ProofMediaId,
-        Guid? PostId);
+        Guid? PostId,
+        int ProofImageCount);
 }

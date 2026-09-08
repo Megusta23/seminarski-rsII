@@ -91,7 +91,9 @@ public sealed record CompleteTaskCommand(
     DateOnly OccurrenceDate,
     string? Note,
     string? Caption,
-    UploadPayload? ProofImage);
+    string? ProofLayoutCode,
+    UploadPayload? ProofImage,
+    IReadOnlyCollection<UploadPayload> ProofImages);
 
 public sealed record TaskCompletionResponse(
     Guid Id,
@@ -102,7 +104,9 @@ public sealed record TaskCompletionResponse(
     int ScorePoints,
     Guid? ProofMediaId,
     string? ProofUrl,
-    Guid? PostId);
+    Guid? PostId,
+    string? ProofLayoutCode,
+    int ProofImageCount);
 
 public interface ITaskService
 {

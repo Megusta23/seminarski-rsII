@@ -195,6 +195,7 @@ public static class DependencyInjection
         services.AddSingleton<ITaskStateMachine, TaskStateMachine>();
         services.AddScoped<ICompletionStatisticsService, CompletionStatisticsService>();
         services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<IProofGalleryService, ProofGalleryService>();
         services.AddScoped<IMediaService, MediaService>();
         services.AddScoped<IFeedService, FeedService>();
         services.AddScoped<IFriendService, FriendService>();

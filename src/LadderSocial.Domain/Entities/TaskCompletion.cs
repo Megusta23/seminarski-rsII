@@ -10,4 +10,5 @@ public sealed class TaskCompletion : AuditableEntity
     public DateTime CompletedAtUtc { get; set; }
     public int ScorePoints { get; set; } = 1;
     public string? Note { get; set; }
+    public string? ProofLayoutCode { get; set; }
 }

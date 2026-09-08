@@ -71,16 +71,23 @@ public sealed class TasksController(ITaskService taskService) : ControllerBase
                 });
         }
 
-        var upload = form.ProofImage is null
+        var coverUpload = form.ProofImage is null
             ? null
             : await FormFileReader.ReadAsync(form.ProofImage, cancellationToken);
+        var proofUploads = await FormFileReader.ReadManyAsync(
+            form.ProofImages,
+            maximumCount: 4,
+            maximumTotalBytes: 20L * 1024 * 1024,
+            cancellationToken);
         var result = await taskService.CompleteAsync(
             id,
             new CompleteTaskCommand(
                 form.OccurrenceDate.Value,
                 form.Note,
                 form.Caption,
-                upload),
+                form.ProofLayoutCode,
+                coverUpload,
+                proofUploads),
             cancellationToken);
         return CreatedAtAction(nameof(GetCompletions), new { id }, result);
     }

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:ladder_social_core/src/auth/auth_models.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
@@ -190,5 +192,18 @@ final class ApiClient {
         'Content-Type': 'application/json',
       },
     );
+  }
+
+  Future<Object?> getJson(String path) async {
+    final Response<Object?> response = await dio.get<Object?>(path);
+    return response.data;
+  }
+
+  Future<Uint8List> getBytes(String path) async {
+    final Response<List<int>> response = await dio.get<List<int>>(
+      path,
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return Uint8List.fromList(response.data ?? const <int>[]);
   }
 }

@@ -13,5 +13,10 @@ public sealed class TaskCompleteForm
     [StringLength(1000)]
     public string? Caption { get; set; }
 
+    [StringLength(32)]
+    public string? ProofLayoutCode { get; set; }
+
     public IFormFile? ProofImage { get; set; }
+
+    public List<IFormFile> ProofImages { get; set; } = [];
 }

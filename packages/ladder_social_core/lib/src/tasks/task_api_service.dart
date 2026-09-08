@@ -4,6 +4,7 @@ import 'package:ladder_social_core/src/models/json_helpers.dart';
 import 'package:ladder_social_core/src/models/paged_json.dart';
 import 'package:ladder_social_core/src/models/paged_result.dart';
 import 'package:ladder_social_core/src/network/api_client.dart';
+import 'package:ladder_social_core/src/tasks/proof_gallery_models.dart';
 import 'package:ladder_social_core/src/tasks/task_models.dart';
 
 final class TaskApiService {
@@ -82,21 +83,51 @@ final class TaskApiService {
     required DateTime occurrenceDate,
     String? note,
     String? caption,
+    String? proofLayoutCode,
     ImageUpload? proof,
+    List<ImageUpload> proofImages = const <ImageUpload>[],
   }) async {
     try {
-      final FormData form = FormData.fromMap(<String, dynamic>{
-        'occurrenceDate': dateOnlyString(occurrenceDate),
-        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
-        if (caption != null && caption.trim().isNotEmpty)
-          'caption': caption.trim(),
-        if (proof != null)
-          'proofImage': MultipartFile.fromBytes(
-            proof.bytes,
-            filename: proof.fileName,
-            contentType: DioMediaType.parse(proof.contentType),
+      final FormData form = FormData();
+      form.fields.add(
+        MapEntry<String, String>('occurrenceDate', dateOnlyString(occurrenceDate)),
+      );
+      if (note != null && note.trim().isNotEmpty) {
+        form.fields.add(MapEntry<String, String>('note', note.trim()));
+      }
+      if (caption != null && caption.trim().isNotEmpty) {
+        form.fields.add(MapEntry<String, String>('caption', caption.trim()));
+      }
+      if (proofLayoutCode != null && proofLayoutCode.trim().isNotEmpty) {
+        form.fields.add(
+          MapEntry<String, String>('proofLayoutCode', proofLayoutCode.trim()),
+        );
+      }
+      if (proof != null) {
+        form.files.add(
+          MapEntry<String, MultipartFile>(
+            'proofImage',
+            MultipartFile.fromBytes(
+              proof.bytes,
+              filename: proof.fileName,
+              contentType: DioMediaType.parse(proof.contentType),
+            ),
           ),
-      });
+        );
+      }
+      for (final ImageUpload image in proofImages) {
+        form.files.add(
+          MapEntry<String, MultipartFile>(
+            'proofImages',
+            MultipartFile.fromBytes(
+              image.bytes,
+              filename: image.fileName,
+              contentType: DioMediaType.parse(image.contentType),
+            ),
+          ),
+        );
+      }
+
       final Response<dynamic> response = await _client.dio.post<dynamic>(
         '/api/tasks/$taskId/complete',
         data: form,
@@ -109,6 +140,44 @@ final class TaskApiService {
       throw ApiException.from(error);
     } on FormatException catch (error) {
       throw ApiException(message: error.message);
+    }
+  }
+
+  Future<ProofGallery> getProofGalleryByMedia(String primaryMediaId) async {
+    try {
+      final Object? response = await _client.getJson(
+        '/api/proof-galleries/by-media/$primaryMediaId',
+      );
+      return ProofGallery.fromJson(
+        jsonMap(response, context: 'proof gallery'),
+      );
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<ProofGallery> getProofGalleryByPost(String postId) async {
+    try {
+      final Object? response = await _client.getJson(
+        '/api/proof-galleries/posts/$postId',
+      );
+      return ProofGallery.fromJson(
+        jsonMap(response, context: 'proof gallery'),
+      );
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  Future<List<int>> getProofGalleryItemBytes(String path) async {
+    try {
+      return await _client.getBytes(path);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
     }
   }
 

@@ -20,6 +20,7 @@ public sealed class ApplicationDbContext(
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
     public DbSet<TaskCompletion> TaskCompletions => Set<TaskCompletion>();
     public DbSet<TaskProofMedia> TaskProofMedia => Set<TaskProofMedia>();
+    public DbSet<TaskProofItem> TaskProofItems => Set<TaskProofItem>();
     public DbSet<Post> Posts => Set<Post>();
     public DbSet<PostView> PostViews => Set<PostView>();
     public DbSet<Conversation> Conversations => Set<Conversation>();

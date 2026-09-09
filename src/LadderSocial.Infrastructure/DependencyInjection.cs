@@ -10,6 +10,7 @@ using LadderSocial.Application.Features.Media;
 using LadderSocial.Application.Features.Notifications;
 using LadderSocial.Application.Features.Reports;
 using LadderSocial.Application.Features.Tasks;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Application.Features.Profiles;
 using LadderSocial.Application.Features.ReferenceData;
 using LadderSocial.Infrastructure.Identity;
@@ -153,9 +154,17 @@ public static class DependencyInjection
                     configuration,
                     "UPLOAD_MAX_IMAGE_BYTES",
                     5 * 1024 * 1024);
+                options.MaximumEncryptedChatMediaBytes = GetPositiveInt(
+                    configuration,
+                    "UPLOAD_MAX_ENCRYPTED_CHAT_MEDIA_BYTES",
+                    ChatCryptoConstants.MaximumEncryptedMediaBytes);
             })
             .Validate(options => options.MaximumImageBytes is >= 1024 and <= 20 * 1024 * 1024,
                 "UPLOAD_MAX_IMAGE_BYTES must be between 1 KB and 20 MB.")
+            .Validate(
+                options => options.MaximumEncryptedChatMediaBytes is >= 1024 and
+                    <= ChatCryptoConstants.MaximumEncryptedMediaBytes,
+                "UPLOAD_MAX_ENCRYPTED_CHAT_MEDIA_BYTES must be between 1 KB and 25 MB.")
             .ValidateOnStart();
 
         services.AddSingleton<IFileStorageService, LocalFileStorageService>();

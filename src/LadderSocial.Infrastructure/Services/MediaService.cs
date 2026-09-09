@@ -1,6 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Features.Media;
+using LadderSocial.Domain.Constants;
 using LadderSocial.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -72,7 +73,7 @@ public sealed class MediaService(
 
         return await fileStorageService.ReadAsync(
             attachment.StorageKey,
-            $"message-image-{attachment.Id}{ExtensionFor(attachment.MimeType)}",
+            $"message-attachment-{attachment.Id}{ExtensionFor(attachment.MimeType)}",
             attachment.MimeType,
             cancellationToken);
     }
@@ -103,6 +104,7 @@ public sealed class MediaService(
     private static string ExtensionFor(string contentType) =>
         contentType.ToLowerInvariant() switch
         {
+            ChatCryptoConstants.EncryptedMediaContentType => ".bin",
             "image/png" => ".png",
             "image/webp" => ".webp",
             _ => ".jpg"

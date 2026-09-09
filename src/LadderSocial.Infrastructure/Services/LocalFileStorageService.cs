@@ -1,6 +1,7 @@
 using LadderSocial.Application.Abstractions;
 using LadderSocial.Application.Common.Exceptions;
 using LadderSocial.Application.Common.Options;
+using LadderSocial.Domain.Constants;
 using Microsoft.Extensions.Options;
 
 namespace LadderSocial.Infrastructure.Services;
@@ -38,6 +39,30 @@ public sealed class LocalFileStorageService(IOptions<FileStorageOptions> options
         return new StoredFileInfo(
             storageKey,
             upload.ContentType.Trim().ToLowerInvariant(),
+            upload.Length,
+            Path.GetFileName(upload.FileName));
+    }
+
+    public async Task<StoredFileInfo> SaveEncryptedAsync(
+        string folder,
+        UploadPayload upload,
+        CancellationToken cancellationToken)
+    {
+        ValidateEncrypted(upload);
+
+        var normalizedFolder = NormalizeRelativePath(folder);
+        var fileName = $"{Guid.NewGuid():N}.bin";
+        var storageKey = Path.Combine(normalizedFolder, fileName).Replace('\\', '/');
+        var absolutePath = ResolveAbsolutePath(storageKey);
+        var directory = Path.GetDirectoryName(absolutePath)
+            ?? throw new InvalidOperationException("The upload destination directory could not be determined.");
+
+        Directory.CreateDirectory(directory);
+        await File.WriteAllBytesAsync(absolutePath, upload.Content, cancellationToken);
+
+        return new StoredFileInfo(
+            storageKey,
+            ChatCryptoConstants.EncryptedMediaContentType,
             upload.Length,
             Path.GetFileName(upload.FileName));
     }
@@ -98,6 +123,39 @@ public sealed class LocalFileStorageService(IOptions<FileStorageOptions> options
         if (errors.Count > 0)
         {
             throw new ValidationException("Image validation failed.", errors);
+        }
+    }
+
+    private void ValidateEncrypted(UploadPayload upload)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+
+        if (upload.Content.Length <= ChatCryptoConstants.AeadTagBytes)
+        {
+            errors["attachment"] =
+            ["Encrypted media must contain ciphertext plus an authentication tag."];
+        }
+        else if (upload.Content.Length > _options.MaximumEncryptedChatMediaBytes)
+        {
+            errors["attachment"] =
+            [
+                $"Encrypted chat media may contain at most " +
+                $"{_options.MaximumEncryptedChatMediaBytes / (1024 * 1024)} MB."
+            ];
+        }
+
+        if (!string.Equals(
+                upload.ContentType.Trim(),
+                ChatCryptoConstants.EncryptedMediaContentType,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            errors["attachment"] =
+            ["Encrypted chat media must use the application/octet-stream content type."];
+        }
+
+        if (errors.Count > 0)
+        {
+            throw new ValidationException("Encrypted media validation failed.", errors);
         }
     }
 

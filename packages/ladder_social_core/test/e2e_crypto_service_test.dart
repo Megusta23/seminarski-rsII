@@ -303,6 +303,7 @@ void main() {
         type: E2EPrivateMessageType.video,
         conversationKey: key,
         payload: payload,
+        durationMilliseconds: 1200,
       ),
       throwsA(isA<E2EAuthenticationException>()),
     );
@@ -324,6 +325,7 @@ void main() {
         type: type,
         conversationKey: key,
         clearBytes: clearBytes,
+        durationMilliseconds: 1750,
       );
       expect(
         await service.decryptMedia(
@@ -332,10 +334,36 @@ void main() {
           type: type,
           conversationKey: key,
           payload: payload,
+          durationMilliseconds: 1750,
         ),
         clearBytes,
       );
     }
+  });
+
+  test('voice duration is authenticated as message metadata', () async {
+    final E2ECryptoService service = _service(_MemorySecureStorage(), seed: 76);
+    final E2EConversationKey key = await service.generateConversationKey();
+    final E2EEncryptedPayload payload = await service.encryptMedia(
+      conversationId: conversationId,
+      keyVersion: 1,
+      type: E2EPrivateMessageType.voice,
+      conversationKey: key,
+      clearBytes: Uint8List.fromList(<int>[1, 2, 3, 4, 5, 6]),
+      durationMilliseconds: 1800,
+    );
+
+    await expectLater(
+      service.decryptMedia(
+        conversationId: conversationId,
+        keyVersion: 1,
+        type: E2EPrivateMessageType.voice,
+        conversationKey: key,
+        payload: payload,
+        durationMilliseconds: 1801,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
   });
 
   test('Base64 payload transport preserves ciphertext and nonce', () async {

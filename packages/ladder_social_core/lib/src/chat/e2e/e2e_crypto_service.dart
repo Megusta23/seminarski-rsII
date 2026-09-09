@@ -309,6 +309,7 @@ final class E2ECryptoService {
     required E2EPrivateMessageType type,
     required E2EConversationKey conversationKey,
     required List<int> clearBytes,
+    int? durationMilliseconds,
   }) async {
     if (type == E2EPrivateMessageType.text) {
       throw ArgumentError.value(
@@ -332,6 +333,7 @@ final class E2ECryptoService {
             '${E2ECryptoConstants.maximumPlainMediaBytes} plaintext bytes.',
       );
     }
+    _validateMediaDuration(type, durationMilliseconds);
 
     return _encryptPayload(
       clearBytes: clearBytes,
@@ -341,6 +343,7 @@ final class E2ECryptoService {
         keyVersion: keyVersion,
         type: type,
         payloadPart: 'attachment',
+        durationMilliseconds: durationMilliseconds,
       ),
     );
   }
@@ -351,6 +354,7 @@ final class E2ECryptoService {
     required E2EPrivateMessageType type,
     required E2EConversationKey conversationKey,
     required E2EEncryptedPayload payload,
+    int? durationMilliseconds,
   }) {
     if (type == E2EPrivateMessageType.text) {
       throw ArgumentError.value(
@@ -359,6 +363,7 @@ final class E2ECryptoService {
         'Use decryptText for text messages.',
       );
     }
+    _validateMediaDuration(type, durationMilliseconds);
 
     return _decryptPayload(
       payload: payload,
@@ -368,6 +373,7 @@ final class E2ECryptoService {
         keyVersion: keyVersion,
         type: type,
         payloadPart: 'attachment',
+        durationMilliseconds: durationMilliseconds,
       ),
     );
   }
@@ -687,11 +693,41 @@ final class E2ECryptoService {
         ),
       );
 
+  void _validateMediaDuration(
+    E2EPrivateMessageType type,
+    int? durationMilliseconds,
+  ) {
+    final bool requiresDuration = type == E2EPrivateMessageType.voice ||
+        type == E2EPrivateMessageType.video;
+    if (!requiresDuration) {
+      if (durationMilliseconds != null) {
+        throw ArgumentError.value(
+          durationMilliseconds,
+          'durationMilliseconds',
+          'Image messages may not contain media duration.',
+        );
+      }
+      return;
+    }
+    if (durationMilliseconds == null ||
+        durationMilliseconds < 1 ||
+        durationMilliseconds >
+            E2ECryptoConstants.maximumMediaDurationMilliseconds) {
+      throw ArgumentError.value(
+        durationMilliseconds,
+        'durationMilliseconds',
+        'Voice and video duration must be between 1 millisecond and '
+            '${E2ECryptoConstants.maximumMediaDurationMilliseconds} milliseconds.',
+      );
+    }
+  }
+
   Uint8List _messageAssociatedData({
     required String conversationId,
     required int keyVersion,
     required E2EPrivateMessageType type,
     required String payloadPart,
+    int? durationMilliseconds,
   }) {
     final String normalizedConversationId =
         _requiredIdentifier(conversationId, 'conversationId');
@@ -706,7 +742,8 @@ final class E2ECryptoService {
       utf8.encode(
         'ladder-social/e2e/v${E2ECryptoConstants.protocolVersion}'
         '/message/$normalizedConversationId'
-        '/${type.wireValue}/$payloadPart/$keyVersion',
+        '/${type.wireValue}/$payloadPart/$keyVersion'
+        '${durationMilliseconds == null ? '' : '/duration/$durationMilliseconds'}',
       ),
     );
   }

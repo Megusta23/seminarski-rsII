@@ -9,6 +9,8 @@ import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
 import 'package:ladder_social_mobile/src/features/chat/presentation/encrypted_image_payload.dart';
+import 'package:ladder_social_mobile/src/features/chat/presentation/encrypted_voice_payload.dart';
+import 'package:ladder_social_mobile/src/features/chat/presentation/voice_recording_service.dart';
 
 final class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({required this.conversation, super.key});
@@ -19,12 +21,17 @@ final class ChatScreen extends ConsumerStatefulWidget {
 }
 
 final class _ChatScreenState extends ConsumerState<ChatScreen> {
+  static const int _voiceAutoStopSafetyMarginMilliseconds = 500;
+
   static const int _pageSize = 40;
 
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  late final VoiceRecordingService _voiceRecordingService;
 
   Timer? _timer;
+  Timer? _recordingTimer;
+  Stopwatch? _recordingStopwatch;
   List<ChatMessage> _messages = const <ChatMessage>[];
   bool _didInitialize = false;
   bool _loading = true;
@@ -33,6 +40,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _loadingOlder = false;
   bool _e2ePreparing = false;
   bool _e2eReady = false;
+  bool _recordingVoice = false;
+  bool _stoppingVoiceRecording = false;
   Future<bool>? _e2ePreparation;
   int _oldestLoadedPage = 0;
   int _totalPages = 1;
@@ -42,7 +51,12 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   Object? _olderError;
   String? _e2eErrorMessage;
   Uint8List? _selectedImageBytes;
+  Duration _recordingDuration = Duration.zero;
+  VoiceRecordingDraft? _voiceDraft;
+  double? _voiceUploadProgress;
   final Map<String, Future<Uint8List>> _encryptedImageLoads =
+      <String, Future<Uint8List>>{};
+  final Map<String, Future<Uint8List>> _encryptedVoiceLoads =
       <String, Future<Uint8List>>{};
 
   bool get _hasOlderMessages => _oldestLoadedPage < _totalPages;
@@ -50,6 +64,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    _voiceRecordingService = VoiceRecordingService();
     _conversation = widget.conversation;
     _canSendMessages = widget.conversation.canSendMessages;
     _scrollController.addListener(_handleScroll);
@@ -78,6 +93,12 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _recordingTimer?.cancel();
+    final VoiceRecordingDraft? draft = _voiceDraft;
+    if (draft != null) {
+      unawaited(draft.delete());
+    }
+    unawaited(_voiceRecordingService.dispose());
     _messageController.dispose();
     _scrollController
       ..removeListener(_handleScroll)
@@ -186,7 +207,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (error is E2EChatSetupException ||
         error is E2ECryptoException ||
         error is E2EKeyTrustException ||
-        error is E2EImageValidationException) {
+        error is E2EImageValidationException ||
+        error is E2EVoiceValidationException) {
       return error.toString();
     }
     return fallback;
@@ -229,6 +251,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
       final List<ChatMessage> merged = initial
           ? List<ChatMessage>.unmodifiable(latest)
           : _mergeMessages(_messages, latest);
+      final bool shouldClearVoiceComposer = !conversation.canSendMessages &&
+          (_recordingVoice || _stoppingVoiceRecording || _voiceDraft != null);
       setState(() {
         _conversation = conversation;
         _messages = merged;
@@ -244,6 +268,9 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         _error = null;
         _loading = false;
       });
+      if (shouldClearVoiceComposer) {
+        unawaited(_discardVoiceComposer());
+      }
 
       if (_messages.isNotEmpty) {
         try {
@@ -369,6 +396,14 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!_canSendMessages || _sending) {
       return;
     }
+    if (_recordingVoice || _stoppingVoiceRecording || _voiceDraft != null) {
+      showMessage(
+        context,
+        'Cancel or remove the voice message before attaching an image.',
+        error: true,
+      );
+      return;
+    }
 
     try {
       final XFile? file = await ImagePicker().pickImage(
@@ -405,6 +440,200 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
           error: true,
         );
       }
+    }
+  }
+
+  Future<void> _startVoiceRecording() async {
+    if (!_canSendMessages ||
+        _sending ||
+        _recordingVoice ||
+        _stoppingVoiceRecording) {
+      return;
+    }
+    if (_selectedImageBytes != null) {
+      showMessage(
+        context,
+        'Remove the selected image before recording a voice message.',
+        error: true,
+      );
+      return;
+    }
+    if (_voiceDraft != null) {
+      showMessage(
+        context,
+        'Remove the current voice preview before recording another one.',
+        error: true,
+      );
+      return;
+    }
+
+    try {
+      final bool permitted = await _voiceRecordingService.requestPermission();
+      if (!permitted) {
+        throw const E2EVoiceValidationException(
+          'Microphone permission is required to record a voice message.',
+        );
+      }
+      await _voiceRecordingService.start();
+      if (!mounted || !_canSendMessages) {
+        await _voiceRecordingService.cancel();
+        return;
+      }
+
+      _recordingStopwatch = Stopwatch()..start();
+      setState(() {
+        _recordingVoice = true;
+        _recordingDuration = Duration.zero;
+      });
+      _recordingTimer?.cancel();
+      _recordingTimer = Timer.periodic(
+        const Duration(milliseconds: 200),
+        (_) {
+          if (!mounted || !_recordingVoice) {
+            return;
+          }
+          final Duration elapsed = _currentRecordingDuration();
+          setState(() => _recordingDuration = elapsed);
+          if (elapsed.inMilliseconds >=
+              E2EVoiceValidator.maximumDurationMilliseconds -
+                  _voiceAutoStopSafetyMarginMilliseconds) {
+            _recordingTimer?.cancel();
+            unawaited(_stopVoiceRecording());
+          }
+        },
+      );
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          _readableError(
+            error,
+            fallback: 'Voice recording could not be started.',
+          ),
+          error: true,
+        );
+      }
+    }
+  }
+
+  Duration _currentRecordingDuration() {
+    final Duration elapsed = _recordingStopwatch?.elapsed ?? _recordingDuration;
+    final Duration maximum = Duration(
+      milliseconds: E2EVoiceValidator.maximumDurationMilliseconds,
+    );
+    return elapsed > maximum ? maximum : elapsed;
+  }
+
+  Future<void> _stopVoiceRecording() async {
+    if (!_recordingVoice || _stoppingVoiceRecording) {
+      return;
+    }
+
+    _recordingTimer?.cancel();
+    _recordingStopwatch?.stop();
+    final Duration elapsed = _currentRecordingDuration();
+    setState(() {
+      _recordingVoice = false;
+      _stoppingVoiceRecording = true;
+      _recordingDuration = elapsed;
+    });
+
+    try {
+      final VoiceRecordingDraft draft =
+          await _voiceRecordingService.stop(elapsed: elapsed);
+      if (!mounted || !_canSendMessages) {
+        await draft.delete();
+        return;
+      }
+
+      final VoiceRecordingDraft? previous = _voiceDraft;
+      setState(() {
+        _voiceDraft = draft;
+        _recordingStopwatch = null;
+        _recordingDuration = Duration.zero;
+      });
+      if (previous != null) {
+        await previous.delete();
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _recordingStopwatch = null;
+          _recordingDuration = Duration.zero;
+        });
+        showMessage(
+          context,
+          _readableError(
+            error,
+            fallback: 'Voice recording could not be finalized.',
+          ),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _stoppingVoiceRecording = false);
+      }
+    }
+  }
+
+  Future<void> _cancelVoiceRecording() async {
+    if (!_recordingVoice || _stoppingVoiceRecording) {
+      return;
+    }
+    _recordingTimer?.cancel();
+    setState(() {
+      _recordingVoice = false;
+      _recordingStopwatch = null;
+      _recordingDuration = Duration.zero;
+    });
+    try {
+      await _voiceRecordingService.cancel();
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          _readableError(
+            error,
+            fallback: 'Voice recording could not be cancelled cleanly.',
+          ),
+          error: true,
+        );
+      }
+    }
+  }
+
+  Future<void> _removeVoiceDraft() async {
+    final VoiceRecordingDraft? draft = _voiceDraft;
+    if (draft == null || _sending) {
+      return;
+    }
+    setState(() => _voiceDraft = null);
+    await draft.delete();
+  }
+
+  Future<void> _discardVoiceComposer() async {
+    _recordingTimer?.cancel();
+    final bool shouldCancelRecorder = _recordingVoice;
+    final VoiceRecordingDraft? draft = _voiceDraft;
+    if (mounted) {
+      setState(() {
+        _recordingVoice = false;
+        _recordingStopwatch = null;
+        _recordingDuration = Duration.zero;
+        _voiceDraft = null;
+        _voiceUploadProgress = null;
+      });
+    }
+    if (shouldCancelRecorder) {
+      try {
+        await _voiceRecordingService.cancel();
+      } catch (_) {
+        // The composer is already disabled. Dispose retries recorder cleanup.
+      }
+    }
+    if (draft != null) {
+      await draft.delete();
     }
   }
 
@@ -459,21 +688,74 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         message.attachmentNonce?.join(','),
       ].join('|');
 
+  Future<Uint8List> _loadEncryptedVoice(
+    ChatMessage message, {
+    bool forceReload = false,
+  }) {
+    final String? userId =
+        ref.read(mobileAuthControllerProvider).session?.userId;
+    if (userId == null) {
+      return Future<Uint8List>.error(
+        const ApiException(message: 'Authentication is required.'),
+      );
+    }
+
+    final String cacheKey = _encryptedVoiceCacheKey(message);
+    if (forceReload) {
+      _encryptedVoiceLoads.remove(cacheKey);
+    }
+    return _encryptedVoiceLoads.putIfAbsent(
+      cacheKey,
+      () => ref.read(e2eChatCoordinatorProvider).downloadAndDecryptVoice(
+            userId: userId,
+            message: message,
+          ),
+    );
+  }
+
+  String _encryptedVoiceCacheKey(ChatMessage message) => <Object?>[
+        message.id,
+        message.attachmentId,
+        message.attachmentUrl,
+        message.attachmentKeyVersion,
+        message.attachmentSizeBytes,
+        message.attachmentDurationMilliseconds,
+        message.attachmentNonce?.join(','),
+      ].join('|');
+
+  void _updateVoiceUploadProgress(int transferredBytes, int totalBytes) {
+    if (!mounted || !_sending) {
+      return;
+    }
+    final double? progress = totalBytes <= 0
+        ? null
+        : (transferredBytes / totalBytes).clamp(0.0, 1.0).toDouble();
+    setState(() => _voiceUploadProgress = progress);
+  }
+
   Future<void> _send() async {
-    if (!_canSendMessages) {
+    if (!_canSendMessages ||
+        _sending ||
+        _recordingVoice ||
+        _stoppingVoiceRecording) {
       return;
     }
 
     final String text = _messageController.text.trim();
     final Uint8List? selectedImage = _selectedImageBytes;
-    if (text.isEmpty && selectedImage == null) {
+    final VoiceRecordingDraft? selectedVoice = _voiceDraft;
+    if (text.isEmpty && selectedImage == null && selectedVoice == null) {
       return;
     }
 
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _voiceUploadProgress = selectedVoice == null ? null : 0;
+    });
     final List<ChatMessage> sentMessages = <ChatMessage>[];
     var textSent = false;
     var imageSent = false;
+    var voiceSent = false;
     try {
       final String? userId =
           ref.read(mobileAuthControllerProvider).session?.userId;
@@ -517,7 +799,26 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         imageSent = true;
       }
 
+      if (selectedVoice != null) {
+        final Uint8List localVoiceCopy = selectedVoice.bytes;
+        final ChatMessage encryptedVoice =
+            await ref.read(e2eChatCoordinatorProvider).sendEncryptedVoice(
+                  userId: userId,
+                  conversation: _conversation,
+                  clearVoiceBytes: localVoiceCopy,
+                  durationMilliseconds: selectedVoice.durationMilliseconds,
+                  onUploadProgress: _updateVoiceUploadProgress,
+                );
+        _encryptedVoiceLoads[_encryptedVoiceCacheKey(encryptedVoice)] =
+            Future<Uint8List>.value(localVoiceCopy);
+        sentMessages.add(encryptedVoice);
+        voiceSent = true;
+      }
+
       if (!mounted) {
+        if (voiceSent) {
+          await selectedVoice?.delete();
+        }
         return;
       }
       setState(() {
@@ -528,7 +829,13 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (imageSent) {
           _selectedImageBytes = null;
         }
+        if (voiceSent && identical(_voiceDraft, selectedVoice)) {
+          _voiceDraft = null;
+        }
       });
+      if (voiceSent) {
+        await selectedVoice?.delete();
+      }
       _scrollToBottom(animate: true);
       unawaited(_refreshLatest());
     } catch (error) {
@@ -544,6 +851,9 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (imageSent) {
             _selectedImageBytes = null;
           }
+          if (voiceSent && identical(_voiceDraft, selectedVoice)) {
+            _voiceDraft = null;
+          }
           if (error is E2EChatSetupException ||
               error is E2ECryptoException ||
               error is E2EKeyTrustException) {
@@ -551,11 +861,18 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
             _e2eErrorMessage = _readableError(error);
           }
         });
+        if (voiceSent) {
+          await selectedVoice?.delete();
+        }
+        if (!mounted) {
+          return;
+        }
         if (apiError.statusCode == 403) {
           setState(() {
             _canSendMessages = false;
             _selectedImageBytes = null;
           });
+          unawaited(_discardVoiceComposer());
         }
         showMessage(context, apiError.message, error: true);
         if (sentMessages.isNotEmpty) {
@@ -564,7 +881,10 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() => _sending = false);
+        setState(() {
+          _sending = false;
+          _voiceUploadProgress = null;
+        });
       }
     }
   }
@@ -581,8 +901,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(
               message: _e2eReady
-                  ? 'End-to-end encrypted text and images are ready'
-                  : 'Secure text and image setup is not ready',
+                  ? 'End-to-end encrypted text, images, and voice are ready'
+                  : 'Secure text, image, and voice setup is not ready',
               child: Icon(
                 _e2eReady ? Icons.lock_outline : Icons.lock_clock_outlined,
               ),
@@ -632,6 +952,13 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   error,
                                   fallback:
                                       'The encrypted image could not be loaded.',
+                                ),
+                                loadEncryptedVoice: _loadEncryptedVoice,
+                                encryptedVoiceErrorText: (Object error) =>
+                                    _readableError(
+                                  error,
+                                  fallback:
+                                      'The encrypted voice message could not be loaded.',
                                 ),
                               );
                             },
@@ -695,17 +1022,56 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                     right: 0,
                     top: 0,
                     child: IconButton.filledTonal(
-                      onPressed: () {
-                        setState(() {
-                          _selectedImageBytes = null;
-                        });
-                      },
+                      onPressed: _sending
+                          ? null
+                          : () {
+                              setState(() {
+                                _selectedImageBytes = null;
+                              });
+                            },
                       icon: const Icon(Icons.close, size: 18),
                     ),
                   ),
                 ],
               ),
             ),
+          if ((_recordingVoice || _stoppingVoiceRecording) && _canSendMessages)
+            _VoiceRecordingComposer(
+              duration: _recordingDuration,
+              finalizing: _stoppingVoiceRecording,
+              onStop: _stoppingVoiceRecording
+                  ? null
+                  : () => unawaited(_stopVoiceRecording()),
+              onCancel: _stoppingVoiceRecording
+                  ? null
+                  : () => unawaited(_cancelVoiceRecording()),
+            ),
+          if (_voiceDraft != null && _canSendMessages)
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              alignment: Alignment.centerLeft,
+              child: Stack(
+                children: <Widget>[
+                  VoiceDraftPreview(
+                    path: _voiceDraft!.filePath,
+                    durationMilliseconds: _voiceDraft!.durationMilliseconds,
+                  ),
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: IconButton.filledTonal(
+                      tooltip: 'Remove voice message',
+                      onPressed: _sending
+                          ? null
+                          : () => unawaited(_removeVoiceDraft()),
+                      icon: const Icon(Icons.close, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_voiceUploadProgress != null && _canSendMessages)
+            _VoiceUploadProgress(progress: _voiceUploadProgress!),
           SafeArea(
             top: false,
             child: Padding(
@@ -715,14 +1081,22 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                 children: <Widget>[
                   IconButton(
                     tooltip: 'Attach image',
-                    onPressed:
-                        _sending || !_canSendMessages ? null : _pickAttachment,
+                    onPressed: _sending ||
+                            !_canSendMessages ||
+                            _recordingVoice ||
+                            _stoppingVoiceRecording ||
+                            _voiceDraft != null
+                        ? null
+                        : _pickAttachment,
                     icon: const Icon(Icons.attach_file),
                   ),
                   Expanded(
                     child: TextField(
                       controller: _messageController,
-                      enabled: _canSendMessages && !_sending,
+                      enabled: _canSendMessages &&
+                          !_sending &&
+                          !_recordingVoice &&
+                          !_stoppingVoiceRecording,
                       maxLines: 5,
                       minLines: 1,
                       maxLength: 4000,
@@ -732,13 +1106,32 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                             : 'Messaging is unavailable',
                         counterText: '',
                       ),
-                      onSubmitted:
-                          _canSendMessages ? (_) => unawaited(_send()) : null,
+                      onSubmitted: _canSendMessages &&
+                              !_recordingVoice &&
+                              !_stoppingVoiceRecording
+                          ? (_) => unawaited(_send())
+                          : null,
                     ),
                   ),
                   const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Record voice message',
+                    onPressed: _sending ||
+                            !_canSendMessages ||
+                            _recordingVoice ||
+                            _stoppingVoiceRecording ||
+                            _selectedImageBytes != null ||
+                            _voiceDraft != null
+                        ? null
+                        : () => unawaited(_startVoiceRecording()),
+                    icon: const Icon(Icons.mic_none_outlined),
+                  ),
+                  const SizedBox(width: 4),
                   IconButton.filled(
-                    onPressed: _sending || !_canSendMessages
+                    onPressed: _sending ||
+                            !_canSendMessages ||
+                            _recordingVoice ||
+                            _stoppingVoiceRecording
                         ? null
                         : () => unawaited(_send()),
                     icon: _sending
@@ -752,6 +1145,95 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _VoiceRecordingComposer extends StatelessWidget {
+  const _VoiceRecordingComposer({
+    required this.duration,
+    required this.finalizing,
+    required this.onStop,
+    required this.onCancel,
+  });
+
+  final Duration duration;
+  final bool finalizing;
+  final VoidCallback? onStop;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.errorContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: <Widget>[
+          if (finalizing)
+            const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2.2),
+            )
+          else
+            Icon(
+              Icons.fiber_manual_record,
+              color: colors.error,
+              size: 20,
+            ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              finalizing
+                  ? 'Finalizing encrypted voice preview...'
+                  : 'Recording ${formatVoiceDuration(duration)} / 5:00',
+              style: TextStyle(color: colors.onErrorContainer),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Cancel voice recording',
+            onPressed: onCancel,
+            color: colors.onErrorContainer,
+            icon: const Icon(Icons.close),
+          ),
+          IconButton.filled(
+            tooltip: 'Stop voice recording',
+            onPressed: onStop,
+            icon: const Icon(Icons.stop),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _VoiceUploadProgress extends StatelessWidget {
+  const _VoiceUploadProgress({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final double normalized = progress.clamp(0.0, 1.0).toDouble();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Encrypting and uploading voice message '
+            '${(normalized * 100).round()}%',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(value: normalized),
         ],
       ),
     );
@@ -806,11 +1288,11 @@ final class _E2EStatusBanner extends StatelessWidget {
           Expanded(
             child: Text(
               isPreparing
-                  ? 'Preparing end-to-end encrypted text and images...'
+                  ? 'Preparing end-to-end encrypted text, images, and voice...'
                   : isReady
-                      ? 'Text and image messages are end-to-end encrypted.'
+                      ? 'Text, image, and voice messages are end-to-end encrypted.'
                       : errorMessage ??
-                          'Secure text and image setup is waiting for all devices.',
+                          'Secure text, image, and voice setup is waiting for all devices.',
               style: TextStyle(color: foreground),
             ),
           ),
@@ -887,6 +1369,8 @@ final class _MessageBubble extends StatelessWidget {
     required this.mine,
     required this.loadEncryptedImage,
     required this.encryptedImageErrorText,
+    required this.loadEncryptedVoice,
+    required this.encryptedVoiceErrorText,
     super.key,
   });
 
@@ -894,6 +1378,8 @@ final class _MessageBubble extends StatelessWidget {
   final bool mine;
   final EncryptedImageLoader loadEncryptedImage;
   final EncryptedImageErrorText encryptedImageErrorText;
+  final EncryptedVoiceLoader loadEncryptedVoice;
+  final EncryptedVoiceErrorText encryptedVoiceErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -921,6 +1407,8 @@ final class _MessageBubble extends StatelessWidget {
               message: message,
               loadEncryptedImage: loadEncryptedImage,
               encryptedImageErrorText: encryptedImageErrorText,
+              loadEncryptedVoice: loadEncryptedVoice,
+              encryptedVoiceErrorText: encryptedVoiceErrorText,
             ),
             const SizedBox(height: 6),
             _EncryptionLabel(message: message),
@@ -941,11 +1429,15 @@ final class _MessagePayload extends StatelessWidget {
     required this.message,
     required this.loadEncryptedImage,
     required this.encryptedImageErrorText,
+    required this.loadEncryptedVoice,
+    required this.encryptedVoiceErrorText,
   });
 
   final ChatMessage message;
   final EncryptedImageLoader loadEncryptedImage;
   final EncryptedImageErrorText encryptedImageErrorText;
+  final EncryptedVoiceLoader loadEncryptedVoice;
+  final EncryptedVoiceErrorText encryptedVoiceErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -991,12 +1483,15 @@ final class _MessagePayload extends StatelessWidget {
         errorText: encryptedImageErrorText,
       );
     }
+    if (message.type == MessageType.voice) {
+      return EncryptedVoicePayload(
+        message: message,
+        load: loadEncryptedVoice,
+        errorText: encryptedVoiceErrorText,
+      );
+    }
 
     final ({IconData icon, String label}) presentation = switch (message.type) {
-      MessageType.voice => (
-          icon: Icons.mic_none_outlined,
-          label: 'Encrypted voice message',
-        ),
       MessageType.video => (
           icon: Icons.videocam_outlined,
           label: 'Encrypted video',

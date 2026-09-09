@@ -4,6 +4,9 @@ import 'package:ladder_social_core/src/chat/chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_models.dart';
 
+typedef E2ETransferProgress = void Function(
+    int transferredBytes, int totalBytes);
+
 abstract interface class E2EChatTransport {
   Future<E2EDeviceKeyRecord> registerDeviceKey(
     E2EDevicePublicIdentity identity,
@@ -38,6 +41,7 @@ abstract interface class E2EChatTransport {
     required E2EPrivateMessageType type,
     required E2EEncryptedPayload payload,
     int? durationMilliseconds,
+    E2ETransferProgress? onUploadProgress,
   });
 
   Future<Uint8List> downloadEncryptedAttachment(String attachmentUrl);

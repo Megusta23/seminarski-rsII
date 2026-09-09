@@ -7,6 +7,7 @@ import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_service.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_key_trust_store.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_image_validation.dart';
+import 'package:ladder_social_core/src/chat/e2e/e2e_voice_validation.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
 
 typedef E2EDelay = Future<void> Function(Duration duration);
@@ -219,6 +220,60 @@ final class E2EChatCoordinator {
     return response;
   }
 
+  Future<ChatMessage> sendEncryptedVoice({
+    required String userId,
+    required ConversationItem conversation,
+    required List<int> clearVoiceBytes,
+    required int durationMilliseconds,
+    E2ETransferProgress? onUploadProgress,
+  }) async {
+    if (!conversation.canSendMessages) {
+      throw const E2EChatSetupException(
+        'New messages are disabled for this conversation. Message history '
+        'remains available.',
+      );
+    }
+
+    final Uint8List localVoiceBytes = Uint8List.fromList(clearVoiceBytes);
+    E2EVoiceValidator.validate(
+      bytes: localVoiceBytes,
+      durationMilliseconds: durationMilliseconds,
+    );
+
+    final _ConversationContext context = await _loadConversationContext(
+      userId: userId,
+      conversation: conversation,
+      keyVersion: currentKeyVersion,
+      forceRefresh: true,
+    );
+    final E2EEncryptedPayload encrypted = await _cryptoService.encryptMedia(
+      conversationId: context.conversationId,
+      keyVersion: context.keyVersion,
+      type: E2EPrivateMessageType.voice,
+      conversationKey: context.conversationKey,
+      clearBytes: localVoiceBytes,
+      durationMilliseconds: durationMilliseconds,
+    );
+    final ChatMessage response = await _transport.sendEncryptedMedia(
+      conversationId: context.conversationId,
+      senderDeviceKeyId: context.currentDevice.id,
+      keyVersion: context.keyVersion,
+      type: E2EPrivateMessageType.voice,
+      payload: encrypted,
+      durationMilliseconds: durationMilliseconds,
+      onUploadProgress: onUploadProgress,
+    );
+
+    _validateEncryptedMediaResponse(
+      response: response,
+      context: context,
+      type: E2EPrivateMessageType.voice,
+      requestPayload: encrypted,
+      durationMilliseconds: durationMilliseconds,
+    );
+    return response;
+  }
+
   Future<Uint8List> downloadAndDecryptImage({
     required String userId,
     required ChatMessage message,
@@ -258,6 +313,53 @@ final class E2EChatCoordinator {
     );
     E2EImageValidator.validate(clearImage);
     return clearImage;
+  }
+
+  Future<Uint8List> downloadAndDecryptVoice({
+    required String userId,
+    required ChatMessage message,
+  }) async {
+    final _EncryptedMediaDescriptor media =
+        _validateEncryptedVoiceMessage(message);
+    final E2EConversationKey conversationKey =
+        await _readOrRecoverConversationKey(
+      userId: userId,
+      conversationId: message.conversationId,
+      keyVersion: media.keyVersion,
+    );
+    final Uint8List cipherText =
+        await _transport.downloadEncryptedAttachment(media.attachmentUrl);
+    if (cipherText.length != media.encryptedSizeBytes) {
+      throw const E2EChatSetupException(
+        'The downloaded encrypted voice size does not match the server '
+        'message metadata.',
+      );
+    }
+    if (cipherText.length <= E2ECryptoConstants.authenticationTagBytes ||
+        cipherText.length > E2ECryptoConstants.maximumEncryptedMediaBytes) {
+      throw const E2EChatSetupException(
+        'The downloaded encrypted voice message has an invalid ciphertext '
+        'size.',
+      );
+    }
+
+    final int durationMilliseconds = media.durationMilliseconds!;
+    final Uint8List clearVoice = await _cryptoService.decryptMedia(
+      conversationId: message.conversationId,
+      keyVersion: media.keyVersion,
+      type: E2EPrivateMessageType.voice,
+      conversationKey: conversationKey,
+      payload: E2EEncryptedPayload(
+        cipherTextWithMac: cipherText,
+        nonce: media.nonce,
+      ),
+      durationMilliseconds: durationMilliseconds,
+    );
+    E2EVoiceValidator.validate(
+      bytes: clearVoice,
+      durationMilliseconds: durationMilliseconds,
+    );
+    return clearVoice;
   }
 
   Future<List<ChatMessage>> decryptMessages({
@@ -1178,6 +1280,58 @@ final class E2EChatCoordinator {
     );
   }
 
+  _EncryptedMediaDescriptor _validateEncryptedVoiceMessage(
+    ChatMessage message,
+  ) {
+    if (message.encryptionVersion != ChatEncryptionVersion.clientE2E ||
+        message.type != MessageType.voice ||
+        message.content != null ||
+        message.encryptedContent != null ||
+        message.contentNonce != null) {
+      throw const E2EChatSetupException(
+        'The encrypted voice message contains invalid plaintext or message '
+        'payload metadata.',
+      );
+    }
+
+    final int? keyVersion = message.keyVersion;
+    final String? attachmentId = message.attachmentId;
+    final String? attachmentUrl = message.attachmentUrl;
+    final List<int>? attachmentNonce = message.attachmentNonce;
+    final int? attachmentSizeBytes = message.attachmentSizeBytes;
+    final int? durationMilliseconds = message.attachmentDurationMilliseconds;
+    if (keyVersion == null ||
+        keyVersion < 1 ||
+        attachmentId == null ||
+        attachmentUrl == null ||
+        message.attachmentMimeType?.toLowerCase() !=
+            E2ECryptoConstants.encryptedMediaContentType ||
+        attachmentNonce == null ||
+        attachmentNonce.length != E2ECryptoConstants.nonceBytes ||
+        message.attachmentEncryptionVersion !=
+            ChatEncryptionVersion.clientE2E ||
+        message.attachmentKeyVersion != keyVersion ||
+        attachmentSizeBytes == null ||
+        attachmentSizeBytes <= E2ECryptoConstants.authenticationTagBytes ||
+        attachmentSizeBytes > E2ECryptoConstants.maximumEncryptedMediaBytes ||
+        durationMilliseconds == null ||
+        durationMilliseconds < E2EVoiceValidator.minimumDurationMilliseconds ||
+        durationMilliseconds > E2EVoiceValidator.maximumDurationMilliseconds ||
+        !_isExpectedAttachmentUrl(attachmentUrl, attachmentId)) {
+      throw const E2EChatSetupException(
+        'The encrypted voice message is missing valid attachment metadata.',
+      );
+    }
+
+    return _EncryptedMediaDescriptor(
+      attachmentUrl: attachmentUrl,
+      nonce: attachmentNonce,
+      encryptedSizeBytes: attachmentSizeBytes,
+      keyVersion: keyVersion,
+      durationMilliseconds: durationMilliseconds,
+    );
+  }
+
   bool _isExpectedAttachmentUrl(String attachmentUrl, String attachmentId) {
     final Uri? uri = Uri.tryParse(attachmentUrl.trim());
     if (uri == null ||
@@ -1248,10 +1402,12 @@ final class _EncryptedMediaDescriptor {
     required List<int> nonce,
     required this.encryptedSizeBytes,
     required this.keyVersion,
+    this.durationMilliseconds,
   }) : nonce = Uint8List.fromList(nonce);
 
   final String attachmentUrl;
   final Uint8List nonce;
   final int encryptedSizeBytes;
   final int keyVersion;
+  final int? durationMilliseconds;
 }

@@ -597,6 +597,227 @@ void main() {
     );
     expect(fixture.server.devicesByUser, isEmpty);
   });
+
+  test('voice validation accepts M4A and AAC signatures with valid duration',
+      () {
+    expect(
+      E2EVoiceValidator.validate(
+        bytes: _m4aBytes('m4a voice'),
+        durationMilliseconds: 1200,
+      ),
+      E2EVoiceFormat.m4a,
+    );
+    expect(
+      E2EVoiceValidator.validate(
+        bytes: _aacBytes('aac voice'),
+        durationMilliseconds: 1200,
+      ),
+      E2EVoiceFormat.aacAdts,
+    );
+    expect(
+      () => E2EVoiceValidator.validate(
+        bytes: utf8.encode('renamed-not-audio.m4a'),
+        durationMilliseconds: 1200,
+      ),
+      throwsA(isA<E2EVoiceValidationException>()),
+    );
+    expect(
+      () => E2EVoiceValidator.validate(
+        bytes: _m4aBytes('too short'),
+        durationMilliseconds: 100,
+      ),
+      throwsA(isA<E2EVoiceValidationException>()),
+    );
+  });
+
+  test('voice validation rejects excessive duration and clear byte size', () {
+    expect(
+      () => E2EVoiceValidator.validate(
+        bytes: _m4aBytes('too long'),
+        durationMilliseconds: E2EVoiceValidator.maximumDurationMilliseconds + 1,
+      ),
+      throwsA(isA<E2EVoiceValidationException>()),
+    );
+
+    final Uint8List oversized = Uint8List(
+      E2ECryptoConstants.maximumPlainMediaBytes + 1,
+    )
+      ..[4] = 0x66
+      ..[5] = 0x74
+      ..[6] = 0x79
+      ..[7] = 0x70;
+    expect(
+      () => E2EVoiceValidator.validate(
+        bytes: oversized,
+        durationMilliseconds: 1200,
+      ),
+      throwsA(isA<E2EVoiceValidationException>()),
+    );
+  });
+
+  test('encrypted voice roundtrip authenticates duration and hides clear bytes',
+      () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    final Uint8List clearVoice = _m4aBytes(
+      'STEP-4-VOICE-PLAINTEXT-MARKER-zcCsd',
+    );
+    final List<(int, int)> progress = <(int, int)>[];
+
+    final ChatMessage sent = await fixture.alice.sendEncryptedVoice(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVoiceBytes: clearVoice,
+      durationMilliseconds: 1850,
+      onUploadProgress: (int transferred, int total) {
+        progress.add((transferred, total));
+      },
+    );
+
+    expect(sent.type, MessageType.voice);
+    expect(sent.content, isNull);
+    expect(sent.encryptedContent, isNull);
+    expect(sent.contentNonce, isNull);
+    expect(
+      sent.attachmentMimeType,
+      E2ECryptoConstants.encryptedMediaContentType,
+    );
+    expect(sent.attachmentDurationMilliseconds, 1850);
+    final List<int> storedCipherText =
+        fixture.server.attachments[sent.attachmentUrl]!;
+    expect(
+      storedCipherText.length,
+      clearVoice.length + E2ECryptoConstants.authenticationTagBytes,
+    );
+    expect(_containsContiguousBytes(storedCipherText, clearVoice), isFalse);
+    expect(
+      _containsContiguousBytes(
+        storedCipherText,
+        utf8.encode('STEP-4-VOICE-PLAINTEXT-MARKER'),
+      ),
+      isFalse,
+    );
+    expect(progress, isNotEmpty);
+    expect(progress.last.$1, storedCipherText.length);
+    expect(progress.last.$2, storedCipherText.length);
+
+    final Uint8List opened = await fixture.bob.downloadAndDecryptVoice(
+      userId: bobUserId,
+      message: fixture.server.messages.single,
+    );
+    expect(opened, orderedEquals(clearVoice));
+  });
+
+  test('tampered encrypted voice bytes fail authentication', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedVoice(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVoiceBytes: _m4aBytes('authenticated voice'),
+      durationMilliseconds: 1500,
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    fixture.server.attachments[stored.attachmentUrl]![0] ^= 0x01;
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptVoice(
+        userId: bobUserId,
+        message: stored,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
+  });
+
+  test('changed encrypted voice duration fails authentication', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedVoice(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVoiceBytes: _m4aBytes('duration protected voice'),
+      durationMilliseconds: 1600,
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    final ChatMessage changedDuration = _copyWithAttachmentDuration(
+      stored,
+      1601,
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptVoice(
+        userId: bobUserId,
+        message: changedDuration,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
+  });
+
+  test('invalid local voice is rejected before crypto or network work',
+      () async {
+    final _Fixture fixture = _Fixture();
+
+    await expectLater(
+      fixture.alice.sendEncryptedVoice(
+        userId: aliceUserId,
+        conversation: fixture.conversation,
+        clearVoiceBytes: utf8.encode('not an AAC or M4A recording'),
+        durationMilliseconds: 1500,
+      ),
+      throwsA(isA<E2EVoiceValidationException>()),
+    );
+    expect(fixture.server.devicesByUser, isEmpty);
+    expect(fixture.server.envelopes, isEmpty);
+    expect(fixture.server.messages, isEmpty);
+    expect(fixture.server.attachments, isEmpty);
+  });
+
+  test('incoming encrypted voice without duration is rejected before download',
+      () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedVoice(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVoiceBytes: _m4aBytes('duration required'),
+      durationMilliseconds: 1700,
+    );
+    final ChatMessage malformed = _copyWithAttachmentDuration(
+      fixture.server.messages.single,
+      null,
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptVoice(
+        userId: bobUserId,
+        message: malformed,
+      ),
+      throwsA(
+        isA<E2EChatSetupException>().having(
+          (E2EChatSetupException error) => error.message,
+          'message',
+          contains('metadata'),
+        ),
+      ),
+    );
+  });
+
+  test('changed voice duration in send response is rejected locally', () async {
+    final _Fixture fixture = _Fixture(invalidVoiceDurationResponse: true);
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+
+    await expectLater(
+      fixture.alice.sendEncryptedVoice(
+        userId: aliceUserId,
+        conversation: fixture.conversation,
+        clearVoiceBytes: _m4aBytes('response duration validation'),
+        durationMilliseconds: 1900,
+      ),
+      throwsA(isA<E2EChatSetupException>()),
+    );
+    expect(fixture.server.messages, hasLength(1));
+    expect(fixture.server.messages.single.content, isNull);
+  });
 }
 
 final class _Fixture {
@@ -604,10 +825,12 @@ final class _Fixture {
     bool invalidPlaintextResponse = false,
     bool mutateEncryptedResponse = false,
     bool invalidMediaResponse = false,
+    bool invalidVoiceDurationResponse = false,
   })  : server = _FakeE2EServer(
           invalidPlaintextResponse: invalidPlaintextResponse,
           mutateEncryptedResponse: mutateEncryptedResponse,
           invalidMediaResponse: invalidMediaResponse,
+          invalidVoiceDurationResponse: invalidVoiceDurationResponse,
         ),
         aliceStorage = _MemorySecureStorage(),
         bobStorage = _MemorySecureStorage() {
@@ -678,6 +901,7 @@ final class _FakeE2EServer {
     required this.invalidPlaintextResponse,
     required this.mutateEncryptedResponse,
     required this.invalidMediaResponse,
+    required this.invalidVoiceDurationResponse,
   });
 
   static const String conversationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -686,6 +910,7 @@ final class _FakeE2EServer {
   final bool invalidPlaintextResponse;
   final bool mutateEncryptedResponse;
   final bool invalidMediaResponse;
+  final bool invalidVoiceDurationResponse;
   final Map<String, E2EDeviceKeyRecord> devicesByUser =
       <String, E2EDeviceKeyRecord>{};
   final Map<String, E2EConversationKeyEnvelopeRecord> envelopes =
@@ -864,6 +1089,7 @@ final class _FakeE2ETransport implements E2EChatTransport {
     required E2EPrivateMessageType type,
     required E2EEncryptedPayload payload,
     int? durationMilliseconds,
+    E2ETransferProgress? onUploadProgress,
   }) async {
     if (type == E2EPrivateMessageType.text) {
       throw ArgumentError.value(
@@ -880,6 +1106,7 @@ final class _FakeE2ETransport implements E2EChatTransport {
     final String attachmentUrl = '/api/media/message-attachments/$attachmentId';
     final List<int> cipherText = List<int>.of(payload.cipherTextWithMac);
     server.attachments[attachmentUrl] = cipherText;
+    onUploadProgress?.call(cipherText.length, cipherText.length);
 
     final ChatMessage message = ChatMessage(
       id: 'message-$ordinal',
@@ -899,7 +1126,11 @@ final class _FakeE2ETransport implements E2EChatTransport {
       attachmentEncryptionVersion: ChatEncryptionVersion.clientE2E,
       attachmentKeyVersion: keyVersion,
       attachmentSizeBytes: cipherText.length,
-      attachmentDurationMilliseconds: durationMilliseconds,
+      attachmentDurationMilliseconds: server.invalidVoiceDurationResponse &&
+              type == E2EPrivateMessageType.voice &&
+              durationMilliseconds != null
+          ? durationMilliseconds + 1
+          : durationMilliseconds,
     );
     server.messages.add(message);
     return message;
@@ -927,6 +1158,46 @@ Uint8List _pngBytes(String marker) => Uint8List.fromList(<int>[
       0x0a,
       0x1a,
       0x0a,
+      ...utf8.encode(marker),
+    ]);
+
+Uint8List _m4aBytes(String marker) => Uint8List.fromList(<int>[
+      0x00,
+      0x00,
+      0x00,
+      0x18,
+      0x66,
+      0x74,
+      0x79,
+      0x70,
+      0x4d,
+      0x34,
+      0x41,
+      0x20,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      ...utf8.encode(marker),
+    ]);
+
+Uint8List _aacBytes(String marker) => Uint8List.fromList(<int>[
+      0xff,
+      0xf1,
+      0x50,
+      0x80,
+      0x00,
+      0x1f,
+      0xfc,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
       ...utf8.encode(marker),
     ]);
 
@@ -982,6 +1253,34 @@ ChatMessage _copyWithAttachmentUrl(
       attachmentKeyVersion: message.attachmentKeyVersion,
       attachmentSizeBytes: message.attachmentSizeBytes,
       attachmentDurationMilliseconds: message.attachmentDurationMilliseconds,
+      decryptedContent: message.decryptedContent,
+      decryptionError: message.decryptionError,
+    );
+
+ChatMessage _copyWithAttachmentDuration(
+  ChatMessage message,
+  int? attachmentDurationMilliseconds,
+) =>
+    ChatMessage(
+      id: message.id,
+      conversationId: message.conversationId,
+      senderUserId: message.senderUserId,
+      senderDisplayName: message.senderDisplayName,
+      type: message.type,
+      content: message.content,
+      encryptedContent: message.encryptedContent,
+      contentNonce: message.contentNonce,
+      encryptionVersion: message.encryptionVersion,
+      keyVersion: message.keyVersion,
+      sentAtUtc: message.sentAtUtc,
+      attachmentId: message.attachmentId,
+      attachmentUrl: message.attachmentUrl,
+      attachmentMimeType: message.attachmentMimeType,
+      attachmentNonce: message.attachmentNonce,
+      attachmentEncryptionVersion: message.attachmentEncryptionVersion,
+      attachmentKeyVersion: message.attachmentKeyVersion,
+      attachmentSizeBytes: message.attachmentSizeBytes,
+      attachmentDurationMilliseconds: attachmentDurationMilliseconds,
       decryptedContent: message.decryptedContent,
       decryptionError: message.decryptionError,
     );

@@ -235,6 +235,7 @@ final class ChatRepository implements E2EChatTransport {
     required E2EPrivateMessageType type,
     required E2EEncryptedPayload payload,
     int? durationMilliseconds,
+    E2ETransferProgress? onUploadProgress,
   }) async {
     if (type == E2EPrivateMessageType.text) {
       throw ArgumentError.value(
@@ -264,6 +265,7 @@ final class ChatRepository implements E2EChatTransport {
         '/api/conversations/$conversationId/messages/e2e',
         data: form,
         options: Options(contentType: 'multipart/form-data'),
+        onSendProgress: onUploadProgress,
       );
       return ChatMessage.fromJson(
         jsonMap(response.data, context: 'encrypted media message'),

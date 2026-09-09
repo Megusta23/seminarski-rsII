@@ -71,6 +71,18 @@ final Provider<E2ECryptoService> e2eCryptoServiceProvider =
     Provider<E2ECryptoService>(
   (Ref ref) => E2ECryptoService(),
 );
+final Provider<E2EPeerKeyTrustStore> e2ePeerKeyTrustStoreProvider =
+    Provider<E2EPeerKeyTrustStore>(
+  (Ref ref) => SecureE2EPeerKeyTrustStore(),
+);
+final Provider<E2EChatCoordinator> e2eChatCoordinatorProvider =
+    Provider<E2EChatCoordinator>(
+  (Ref ref) => E2EChatCoordinator(
+    transport: ref.watch(chatRepositoryProvider),
+    cryptoService: ref.watch(e2eCryptoServiceProvider),
+    keyTrustStore: ref.watch(e2ePeerKeyTrustStoreProvider),
+  ),
+);
 final Provider<MediaRepository> mediaRepositoryProvider =
     Provider<MediaRepository>(
   (Ref ref) => MediaRepository(ref.watch(apiClientProvider)),

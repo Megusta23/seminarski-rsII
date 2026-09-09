@@ -6,9 +6,12 @@ Ovaj dokument se dopunjava kroz više malih implementacijskih paketa. Trenutno s
 
 1. backend persistence model i EF Core migracija;
 2. backend API za javne device ključeve, conversation-key envelope i ciphertext poruke;
-3. Flutter kriptografska osnova za X25519 identitet, HKDF, AES-256-GCM, secure storage i lokalni text/media roundtrip.
+3. Flutter kriptografska osnova za X25519 identitet, HKDF, AES-256-GCM, secure storage i lokalni text/media roundtrip;
+4. produkcijski E2E Text tok: registracija uređaja, provjera javnih ključeva, bootstrap conversation keya, slanje ciphertexta i lokalna dekripcija.
 
-Flutter chat ekran još nije prebačen na novi E2E repository tok. Zbog postepenog rollout-a, postojeći legacy endpoint za plaintext Text/Image poruke privremeno ostaje dostupan dok naredni paket ne poveže registraciju uređaja, envelope bootstrap i enkriptovani text flow. Zbog toga kompletan chat još ne treba predstavljati kao završen E2E sistem.
+Nove tekstualne poruke sa mobilnog chat ekrana više ne koriste legacy plaintext endpoint. Slanje teksta se prekida ako E2E priprema nije uspješna; nema automatskog fallbacka na plaintext. Postojeće `EncryptionVersion = 0` poruke ostaju čitljive i jasno označene kao legacy.
+
+Image picker u ovom inkrementalnom paketu još koristi postojeći legacy image tok, dok Voice i Video UI dolaze u narednim paketima. Zbog toga se kompletan multimedia chat još ne predstavlja kao završeno E2E rješenje.
 
 ## Izbor kriptografskih primitiva
 
@@ -116,6 +119,43 @@ key version
 Time se, na primjer, image ciphertext ne može autentifikovati kao video niti se poruka može premjestiti u drugi razgovor ili drugu key version vrijednost.
 
 `E2EEncryptedPayload` pravi defensive kopije bajtova i podržava standardni Base64 transport potreban postojećem ASP.NET Core `byte[]` JSON ugovoru.
+
+## Flutter E2E Text orkestracija
+
+`E2EChatCoordinator` povezuje kriptografski servis i postojeći `ChatRepository` bez premještanja kriptografije na server. Tok nakon autentifikacije je:
+
+1. `AuthenticatedHomeScreen` pokreće idempotentnu registraciju lokalnog javnog device ključa;
+2. otvaranje chata ponavlja registraciju ako je raniji pokušaj bio privremeno neuspješan;
+3. klijent paginira sve aktivne device ključeve razgovora;
+4. provjerava da svaki participant ima najmanje jedan uređaj i odbija ključeve korisnika koji nisu participanti;
+5. učitava ili lokalno generiše conversation key za `KeyVersion = 1`;
+6. kreira nedostajući envelope za svaki aktivni uređaj;
+7. tekst lokalno enkriptuje i tek tada poziva `/messages/e2e`;
+8. primljeni ciphertext se lokalno dekriptuje prije prikaza u bubble-u.
+
+Paralelni pozivi za registraciju uređaja, pripremu razgovora i učitavanje conversation keya dedupliciraju se u memoriji. Time polling, početno učitavanje i pritisak na Send ne pokreću više konkurentnih bootstrap operacija za isti razgovor.
+
+Klijent validira da backend response nakon slanja sadrži isti conversation ID, sender user ID, key version, ciphertext i nonce koji su poslani, da je `Content = null` i da nema attachmenta. Ako server vrati izmijenjen payload ili pokušaj plaintext sadržaja, lokalni UI odbija response.
+
+## TOFU i pinning javnih ključeva
+
+`SecureE2EPeerKeyTrustStore` pri prvom uspješnom susretu pamti Base64 javni ključ po kombinaciji:
+
+```text
+trenutni korisnik
+peer korisnik
+stabilni peer DeviceId
+```
+
+Svaki naredni različit javni ključ za isti peer uređaj zaustavlja E2E pripremu. Promjena se ne prihvata automatski i poruka se ne šalje. Ovo je TOFU model: štiti od tihe naknadne zamjene ključa, ali prvi kontakt još zavisi od autentifikovanog backend kanala jer seminarski obim nema QR/safety-number potvrdu izvan aplikacije.
+
+## Bootstrap conversation keya
+
+Za prvu `KeyVersion` vrijednost svi klijenti sortiraju aktivne device-key ID vrijednosti i isti najniži ID koriste kao deterministički claim recipient. Samo prvi neidentični envelope za tu kombinaciju razgovora, recipient uređaja i key versiona može biti upisan; backend za drugi sadržaj vraća HTTP 409.
+
+Klijent koji izgubi race ne generiše novi aktivni ključ i ne šalje plaintext. On čeka vlastiti envelope, otvara ga lokalno i nastavlja sa ključem pobjedničkog bootstrap toka. Vlastiti envelope se priprema prije ostalih uređaja, a postojeći vlastiti envelope se lokalno otvara i poredi sa očekivanim conversation keyem prije nastavka.
+
+Ovo rješava uobičajeni istovremeni bootstrap u seminarskom obimu. Nije distribuirani consensus protokol; djelimični mrežni prekid tačno između claim upisa i kreiranja vlastitog envelope-a može zahtijevati da claim-device korisnik ponovo otvori chat.
 
 ## Javni device ključevi
 
@@ -234,17 +274,39 @@ Flutter kriptografska osnova:
 bash scripts/test-review-e2e-chat-crypto.sh
 ```
 
-Flutter testovi provjeravaju stabilne wire vrijednosti, local-only private key, odbijanje nepotpunog key paira, envelope roundtrip, vezivanje envelope konteksta, tampered ciphertext i nonce, text UTF-8 roundtrip, odsustvo poznatog plaintext markera iz ciphertexta, image/voice/video roundtrip, vezivanje media tipa, Base64 transport i secure-storage persistence conversation keya.
+Produkcijski E2E Text tok:
+
+```bash
+bash scripts/test-review-e2e-chat-text.sh
+```
+
+Text testovi provjeravaju:
+
+- automatsku registraciju javnog device ključa bez private key polja;
+- envelope kreiranje za oba uređaja;
+- odsustvo poznatog plaintext markera iz serverskog message modela;
+- lokalni Alice → Bob i Bob → Alice decrypt tok;
+- odbijanje tampered ciphertexta;
+- odbijanje izmijenjenog backend send responsea;
+- odbijanje plaintexta ili attachment metapodataka u E2E Text responseu;
+- odbijanje non-participant device ključa prije envelope kreiranja;
+- TOFU odbijanje promijenjenog ili oštećenog peer-key pina;
+- blokiranje slanja prije kriptografskog i mrežnog rada kada razgovor više nije writable;
+- blokiranje slanja kada participant nema registrovan uređaj;
+- očuvanje i jasno označavanje legacy poruka;
+- parsiranje Base64 ciphertext/nonce polja bez plaintext fallbacka.
 
 ## Ograničenja trenutne inkrementalne faze
 
-Ovaj paket namjerno još ne prebacuje produkcijski chat na E2E tok:
+E2E Text tok je aktivan, ali kompletna profesorova multimedia stavka još nije završena:
 
-- device identitet se generiše lokalno, ali registracija javnog ključa nakon login-a dolazi u narednom paketu;
-- javni ključevi još nemaju Flutter TOFU/pinning provjeru; naredni paket mora zapamtiti prvi viđeni peer key i odbiti tihu promjenu;
+- image picker trenutno ostaje na legacy image endpointu; naredni paket mora lokalno enkriptovati image bytes, uploadovati `application/octet-stream`, preuzeti ciphertext i prikazati sliku tek nakon lokalne dekripcije;
+- Voice recorder, permission, preview, upload/decrypt i playback još nisu spojeni na UI;
+- Video picker/camera, preview, validacija, upload/decrypt i playback još nisu spojeni na UI;
 - nema korisničkog interfejsa za opoziv izgubljenog uređaja; `RevokedAtUtc` ostaje spreman za kasniji device-management tok;
-- bootstrap nove `KeyVersion` vrijednosti mora koordinirati jedan Flutter uređaj kako dva klijenta ne bi istovremeno generisala različite conversation ključeve za istu verziju;
-- protokol koristi verzionisani conversation key, a ne Double Ratchet, pa ovaj seminarski obim ne obećava per-message forward secrecy;
-- dok Flutter repository i chat screen ne pređu na E2E endpoint, legacy plaintext endpoint ostaje samo radi kompatibilnosti i cijeli chat se ne smije označiti kao završen E2E.
+- novi uređaj ne može sam otvoriti historijski conversation key ako još nema svoj envelope; najmanje jedan postojeći uređaj koji već posjeduje ključ mora otvoriti razgovor i kreirati envelope za novi uređaj;
+- nema ručne key-rotation akcije niti migracije postojećih legacy poruka;
+- protokol koristi verzionisani conversation key, a ne Double Ratchet, pa ne obećava per-message forward secrecy;
+- TOFU otkriva promjenu nakon prvog kontakta, ali nema out-of-band safety-number verifikaciju.
 
-Prilikom slanja backend zahtijeva envelope za svaki aktivni device ključ svakog participant-a. Time se sprječava da nova poruka bude poslana u stanju u kojem neki registrovani aktivni uređaj nema način preuzeti conversation key. Naredna klijentska faza mora paginirati sve device ključeve i napraviti nedostajuće envelope-e prije slanja.
+Legacy endpoint ostaje privremeno potreban samo za postojeći Image tok i čitanje stare historije. Produkcijski Text submit ga više ne poziva. Cijeli chat se može označiti kao kompletno E2E tek nakon završetka Image, Voice i Video paketa i završnog smoke testa.

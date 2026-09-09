@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -350,15 +351,263 @@ void main() {
     expect(fixture.server.envelopes, isEmpty);
     expect(fixture.server.messages, isEmpty);
   });
+
+  test('image validation accepts only supported magic-byte signatures', () {
+    expect(E2EImageValidator.validate(_pngBytes('png')), E2EImageFormat.png);
+    expect(
+      E2EImageValidator.validate(
+        const <int>[0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46],
+      ),
+      E2EImageFormat.jpeg,
+    );
+    expect(
+      E2EImageValidator.validate(
+        const <int>[
+          0x52,
+          0x49,
+          0x46,
+          0x46,
+          0x04,
+          0x00,
+          0x00,
+          0x00,
+          0x57,
+          0x45,
+          0x42,
+          0x50,
+        ],
+      ),
+      E2EImageFormat.webp,
+    );
+    expect(
+      () => E2EImageValidator.validate(utf8.encode('renamed-not-image.jpg')),
+      throwsA(isA<E2EImageValidationException>()),
+    );
+  });
+
+  test('encrypted image roundtrip keeps clear bytes off the server', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    final Uint8List clearImage = _pngBytes(
+      'STEP-3-IMAGE-PLAINTEXT-MARKER-zcCsd',
+    );
+
+    final ChatMessage sent = await fixture.alice.sendEncryptedImage(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearImageBytes: clearImage,
+    );
+
+    expect(sent.type, MessageType.image);
+    expect(sent.content, isNull);
+    expect(sent.encryptedContent, isNull);
+    expect(sent.contentNonce, isNull);
+    expect(
+        sent.attachmentMimeType, E2ECryptoConstants.encryptedMediaContentType);
+    expect(sent.attachmentDurationMilliseconds, isNull);
+    final List<int> storedCipherText =
+        fixture.server.attachments[sent.attachmentUrl]!;
+    expect(storedCipherText.length, clearImage.length + 16);
+    expect(_containsContiguousBytes(storedCipherText, clearImage), isFalse);
+    expect(
+      _containsContiguousBytes(
+        storedCipherText,
+        utf8.encode('STEP-3-IMAGE-PLAINTEXT-MARKER'),
+      ),
+      isFalse,
+    );
+
+    final Uint8List opened = await fixture.bob.downloadAndDecryptImage(
+      userId: bobUserId,
+      message: fixture.server.messages.single,
+    );
+    expect(opened, orderedEquals(clearImage));
+  });
+
+  test('tampered encrypted image bytes fail authentication', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedImage(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearImageBytes: _pngBytes('authenticated image'),
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    fixture.server.attachments[stored.attachmentUrl]![0] ^= 0x01;
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptImage(
+        userId: bobUserId,
+        message: stored,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
+  });
+
+  test('changed encrypted image nonce fails authentication', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedImage(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearImageBytes: _pngBytes('nonce protected image'),
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    final List<int> changedNonce = List<int>.of(stored.attachmentNonce!);
+    changedNonce[0] ^= 0x01;
+    final ChatMessage changedMetadata = _copyWithAttachmentNonce(
+      stored,
+      changedNonce,
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptImage(
+        userId: bobUserId,
+        message: changedMetadata,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
+  });
+
+  test('invalid local image is rejected before crypto or network work',
+      () async {
+    final _Fixture fixture = _Fixture();
+
+    await expectLater(
+      fixture.alice.sendEncryptedImage(
+        userId: aliceUserId,
+        conversation: fixture.conversation,
+        clearImageBytes: utf8.encode('not an image'),
+      ),
+      throwsA(isA<E2EImageValidationException>()),
+    );
+    expect(fixture.server.devicesByUser, isEmpty);
+    expect(fixture.server.envelopes, isEmpty);
+    expect(fixture.server.messages, isEmpty);
+    expect(fixture.server.attachments, isEmpty);
+  });
+
+  test('invalid encrypted image send response is rejected locally', () async {
+    final _Fixture fixture = _Fixture(invalidMediaResponse: true);
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+
+    await expectLater(
+      fixture.alice.sendEncryptedImage(
+        userId: aliceUserId,
+        conversation: fixture.conversation,
+        clearImageBytes: _pngBytes('response validation'),
+      ),
+      throwsA(isA<E2EChatSetupException>()),
+    );
+    expect(fixture.server.messages, hasLength(1));
+    expect(fixture.server.messages.single.content, isNull);
+  });
+
+  test('encrypted image size mismatch is rejected before decryption', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedImage(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearImageBytes: _pngBytes('size metadata'),
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    fixture.server.attachments[stored.attachmentUrl]!.removeLast();
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptImage(
+        userId: bobUserId,
+        message: stored,
+      ),
+      throwsA(
+        isA<E2EChatSetupException>().having(
+          (E2EChatSetupException error) => error.message,
+          'message',
+          contains('size'),
+        ),
+      ),
+    );
+  });
+
+  test('absolute encrypted attachment URL is rejected before download',
+      () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedImage(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearImageBytes: _pngBytes('relative URL only'),
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    final ChatMessage maliciousUrl = _copyWithAttachmentUrl(
+      stored,
+      'https://attacker.invalid${stored.attachmentUrl}',
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptImage(
+        userId: bobUserId,
+        message: maliciousUrl,
+      ),
+      throwsA(
+        isA<E2EChatSetupException>().having(
+          (E2EChatSetupException error) => error.message,
+          'message',
+          contains('metadata'),
+        ),
+      ),
+    );
+  });
+
+  test('incoming E2E image with plaintext metadata is rejected before download',
+      () async {
+    final _Fixture fixture = _Fixture();
+    final ChatMessage malformed = ChatMessage(
+      id: 'malformed-image',
+      conversationId: conversationId,
+      senderUserId: aliceUserId,
+      senderDisplayName: 'Alice',
+      type: MessageType.image,
+      content: 'server plaintext',
+      sentAtUtc: DateTime.utc(2026, 9, 9),
+      encryptionVersion: ChatEncryptionVersion.clientE2E,
+      keyVersion: 1,
+      attachmentId: '00000000-0000-0000-0000-000000000001',
+      attachmentUrl:
+          '/api/media/message-attachments/00000000-0000-0000-0000-000000000001',
+      attachmentMimeType: E2ECryptoConstants.encryptedMediaContentType,
+      attachmentNonce: List<int>.filled(12, 1),
+      attachmentEncryptionVersion: ChatEncryptionVersion.clientE2E,
+      attachmentKeyVersion: 1,
+      attachmentSizeBytes: 32,
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptImage(
+        userId: bobUserId,
+        message: malformed,
+      ),
+      throwsA(
+        isA<E2EChatSetupException>().having(
+          (E2EChatSetupException error) => error.message,
+          'message',
+          contains('plaintext'),
+        ),
+      ),
+    );
+    expect(fixture.server.devicesByUser, isEmpty);
+  });
 }
 
 final class _Fixture {
   _Fixture({
     bool invalidPlaintextResponse = false,
     bool mutateEncryptedResponse = false,
+    bool invalidMediaResponse = false,
   })  : server = _FakeE2EServer(
           invalidPlaintextResponse: invalidPlaintextResponse,
           mutateEncryptedResponse: mutateEncryptedResponse,
+          invalidMediaResponse: invalidMediaResponse,
         ),
         aliceStorage = _MemorySecureStorage(),
         bobStorage = _MemorySecureStorage() {
@@ -428,6 +677,7 @@ final class _FakeE2EServer {
   _FakeE2EServer({
     required this.invalidPlaintextResponse,
     required this.mutateEncryptedResponse,
+    required this.invalidMediaResponse,
   });
 
   static const String conversationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -435,11 +685,13 @@ final class _FakeE2EServer {
 
   final bool invalidPlaintextResponse;
   final bool mutateEncryptedResponse;
+  final bool invalidMediaResponse;
   final Map<String, E2EDeviceKeyRecord> devicesByUser =
       <String, E2EDeviceKeyRecord>{};
   final Map<String, E2EConversationKeyEnvelopeRecord> envelopes =
       <String, E2EConversationKeyEnvelopeRecord>{};
   final List<ChatMessage> messages = <ChatMessage>[];
+  final Map<String, List<int>> attachments = <String, List<int>>{};
 
   E2EDeviceKeyRecord register(
     String userId,
@@ -558,13 +810,7 @@ final class _FakeE2ETransport implements E2EChatTransport {
     return record;
   }
 
-  @override
-  Future<ChatMessage> sendEncryptedText({
-    required String conversationId,
-    required String senderDeviceKeyId,
-    required int keyVersion,
-    required E2EEncryptedPayload payload,
-  }) async {
+  void _requireEnvelopeCoverage(int keyVersion) {
     for (final E2EDeviceKeyRecord device in server.deviceKeys) {
       final String envelopeKey = server.envelopeKey(
         recipientDeviceKeyId: device.id,
@@ -577,6 +823,16 @@ final class _FakeE2ETransport implements E2EChatTransport {
         );
       }
     }
+  }
+
+  @override
+  Future<ChatMessage> sendEncryptedText({
+    required String conversationId,
+    required String senderDeviceKeyId,
+    required int keyVersion,
+    required E2EEncryptedPayload payload,
+  }) async {
+    _requireEnvelopeCoverage(keyVersion);
 
     final List<int> responseCipherText =
         List<int>.of(payload.cipherTextWithMac);
@@ -599,7 +855,136 @@ final class _FakeE2ETransport implements E2EChatTransport {
     server.messages.add(message);
     return message;
   }
+
+  @override
+  Future<ChatMessage> sendEncryptedMedia({
+    required String conversationId,
+    required String senderDeviceKeyId,
+    required int keyVersion,
+    required E2EPrivateMessageType type,
+    required E2EEncryptedPayload payload,
+    int? durationMilliseconds,
+  }) async {
+    if (type == E2EPrivateMessageType.text) {
+      throw ArgumentError.value(
+        type,
+        'type',
+        'Use sendEncryptedText for text messages.',
+      );
+    }
+    _requireEnvelopeCoverage(keyVersion);
+
+    final int ordinal = server.messages.length + 1;
+    final String attachmentId =
+        '00000000-0000-0000-0000-${ordinal.toString().padLeft(12, '0')}';
+    final String attachmentUrl = '/api/media/message-attachments/$attachmentId';
+    final List<int> cipherText = List<int>.of(payload.cipherTextWithMac);
+    server.attachments[attachmentUrl] = cipherText;
+
+    final ChatMessage message = ChatMessage(
+      id: 'message-$ordinal',
+      conversationId: conversationId,
+      senderUserId: userId,
+      senderDisplayName: userId == _FakeE2EServer.aliceUserId ? 'Alice' : 'Bob',
+      type: type.wireValue,
+      encryptionVersion: ChatEncryptionVersion.clientE2E,
+      keyVersion: keyVersion,
+      sentAtUtc: DateTime.utc(2026, 9, 9, 12, server.messages.length),
+      attachmentId: attachmentId,
+      attachmentUrl: attachmentUrl,
+      attachmentMimeType: server.invalidMediaResponse
+          ? 'image/jpeg'
+          : E2ECryptoConstants.encryptedMediaContentType,
+      attachmentNonce: payload.nonce,
+      attachmentEncryptionVersion: ChatEncryptionVersion.clientE2E,
+      attachmentKeyVersion: keyVersion,
+      attachmentSizeBytes: cipherText.length,
+      attachmentDurationMilliseconds: durationMilliseconds,
+    );
+    server.messages.add(message);
+    return message;
+  }
+
+  @override
+  Future<Uint8List> downloadEncryptedAttachment(String attachmentUrl) async {
+    final List<int>? cipherText = server.attachments[attachmentUrl];
+    if (cipherText == null) {
+      throw const ApiException(
+        message: 'Encrypted attachment was not found.',
+        statusCode: 404,
+      );
+    }
+    return Uint8List.fromList(cipherText);
+  }
 }
+
+Uint8List _pngBytes(String marker) => Uint8List.fromList(<int>[
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+      ...utf8.encode(marker),
+    ]);
+
+ChatMessage _copyWithAttachmentNonce(
+  ChatMessage message,
+  List<int> attachmentNonce,
+) =>
+    ChatMessage(
+      id: message.id,
+      conversationId: message.conversationId,
+      senderUserId: message.senderUserId,
+      senderDisplayName: message.senderDisplayName,
+      type: message.type,
+      content: message.content,
+      encryptedContent: message.encryptedContent,
+      contentNonce: message.contentNonce,
+      encryptionVersion: message.encryptionVersion,
+      keyVersion: message.keyVersion,
+      sentAtUtc: message.sentAtUtc,
+      attachmentId: message.attachmentId,
+      attachmentUrl: message.attachmentUrl,
+      attachmentMimeType: message.attachmentMimeType,
+      attachmentNonce: attachmentNonce,
+      attachmentEncryptionVersion: message.attachmentEncryptionVersion,
+      attachmentKeyVersion: message.attachmentKeyVersion,
+      attachmentSizeBytes: message.attachmentSizeBytes,
+      attachmentDurationMilliseconds: message.attachmentDurationMilliseconds,
+      decryptedContent: message.decryptedContent,
+      decryptionError: message.decryptionError,
+    );
+
+ChatMessage _copyWithAttachmentUrl(
+  ChatMessage message,
+  String attachmentUrl,
+) =>
+    ChatMessage(
+      id: message.id,
+      conversationId: message.conversationId,
+      senderUserId: message.senderUserId,
+      senderDisplayName: message.senderDisplayName,
+      type: message.type,
+      content: message.content,
+      encryptedContent: message.encryptedContent,
+      contentNonce: message.contentNonce,
+      encryptionVersion: message.encryptionVersion,
+      keyVersion: message.keyVersion,
+      sentAtUtc: message.sentAtUtc,
+      attachmentId: message.attachmentId,
+      attachmentUrl: attachmentUrl,
+      attachmentMimeType: message.attachmentMimeType,
+      attachmentNonce: message.attachmentNonce,
+      attachmentEncryptionVersion: message.attachmentEncryptionVersion,
+      attachmentKeyVersion: message.attachmentKeyVersion,
+      attachmentSizeBytes: message.attachmentSizeBytes,
+      attachmentDurationMilliseconds: message.attachmentDurationMilliseconds,
+      decryptedContent: message.decryptedContent,
+      decryptionError: message.decryptionError,
+    );
 
 E2EDeviceKeyRecord _deviceRecord({
   required String id,

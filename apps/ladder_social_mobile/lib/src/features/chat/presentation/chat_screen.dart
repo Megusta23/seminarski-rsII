@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
+import 'package:ladder_social_mobile/src/features/chat/presentation/encrypted_image_payload.dart';
 
 final class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({required this.conversation, super.key});
@@ -39,8 +41,9 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   Object? _error;
   Object? _olderError;
   String? _e2eErrorMessage;
-  ImageUpload? _attachment;
-  Uint8List? _attachmentPreview;
+  Uint8List? _selectedImageBytes;
+  final Map<String, Future<Uint8List>> _encryptedImageLoads =
+      <String, Future<Uint8List>>{};
 
   bool get _hasOlderMessages => _oldestLoadedPage < _totalPages;
 
@@ -173,16 +176,20 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
   }
 
-  String _readableError(Object error) {
+  String _readableError(
+    Object error, {
+    String fallback = 'Secure chat setup failed. Retry in a moment.',
+  }) {
     if (error is ApiException) {
       return error.message;
     }
     if (error is E2EChatSetupException ||
         error is E2ECryptoException ||
-        error is E2EKeyTrustException) {
+        error is E2EKeyTrustException ||
+        error is E2EImageValidationException) {
       return error.toString();
     }
-    return 'Secure chat setup failed. Retry in a moment.';
+    return fallback;
   }
 
   Future<void> _refreshLatest({bool initial = false}) async {
@@ -232,8 +239,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         _totalPages = result.totalPages;
         _canSendMessages = conversation.canSendMessages;
         if (!_canSendMessages) {
-          _attachment = null;
-          _attachmentPreview = null;
+          _selectedImageBytes = null;
         }
         _error = null;
         _loading = false;
@@ -360,31 +366,98 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _pickAttachment() async {
-    if (!_canSendMessages) {
+    if (!_canSendMessages || _sending) {
       return;
     }
 
-    final XFile? file = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-      maxWidth: 1920,
-    );
-    if (file == null) {
-      return;
-    }
-    final Uint8List bytes = await file.readAsBytes();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _attachmentPreview = bytes;
-      _attachment = ImageUpload(
-        bytes: bytes,
-        fileName: file.name,
-        contentType: imageContentType(file.name, file.mimeType),
+    try {
+      final XFile? file = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+        maxWidth: 1920,
       );
-    });
+      if (file == null) {
+        return;
+      }
+
+      final int fileLength = await file.length();
+      if (fileLength > E2ECryptoConstants.maximumPlainMediaBytes) {
+        throw E2EImageValidationException(
+          'The selected image is too large. The encrypted upload limit is '
+          '${E2ECryptoConstants.maximumEncryptedMediaBytes ~/ (1024 * 1024)} MiB.',
+        );
+      }
+      final Uint8List bytes = await file.readAsBytes();
+      E2EImageValidator.validate(bytes);
+      await _verifyImageCanDecode(bytes);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _selectedImageBytes = bytes);
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          _readableError(
+            error,
+            fallback: 'The selected image could not be prepared.',
+          ),
+          error: true,
+        );
+      }
+    }
   }
+
+  Future<void> _verifyImageCanDecode(Uint8List bytes) async {
+    ui.Codec? codec;
+    ui.FrameInfo? frame;
+    try {
+      codec = await ui.instantiateImageCodec(bytes);
+      frame = await codec.getNextFrame();
+    } catch (error) {
+      throw E2EImageValidationException(
+        'The selected file is not a decodable image.',
+        error,
+      );
+    } finally {
+      frame?.image.dispose();
+      codec?.dispose();
+    }
+  }
+
+  Future<Uint8List> _loadEncryptedImage(
+    ChatMessage message, {
+    bool forceReload = false,
+  }) {
+    final String? userId =
+        ref.read(mobileAuthControllerProvider).session?.userId;
+    if (userId == null) {
+      return Future<Uint8List>.error(
+        const ApiException(message: 'Authentication is required.'),
+      );
+    }
+
+    final String cacheKey = _encryptedImageCacheKey(message);
+    if (forceReload) {
+      _encryptedImageLoads.remove(cacheKey);
+    }
+    return _encryptedImageLoads.putIfAbsent(
+      cacheKey,
+      () => ref.read(e2eChatCoordinatorProvider).downloadAndDecryptImage(
+            userId: userId,
+            message: message,
+          ),
+    );
+  }
+
+  String _encryptedImageCacheKey(ChatMessage message) => <Object?>[
+        message.id,
+        message.attachmentId,
+        message.attachmentUrl,
+        message.attachmentKeyVersion,
+        message.attachmentSizeBytes,
+        message.attachmentNonce?.join(','),
+      ].join('|');
 
   Future<void> _send() async {
     if (!_canSendMessages) {
@@ -392,30 +465,34 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     final String text = _messageController.text.trim();
-    if (text.isEmpty && _attachment == null) {
+    final Uint8List? selectedImage = _selectedImageBytes;
+    if (text.isEmpty && selectedImage == null) {
       return;
     }
+
     setState(() => _sending = true);
     final List<ChatMessage> sentMessages = <ChatMessage>[];
     var textSent = false;
-    var attachmentSent = false;
+    var imageSent = false;
     try {
       final String? userId =
           ref.read(mobileAuthControllerProvider).session?.userId;
-      if (text.isNotEmpty) {
-        if (userId == null) {
-          throw const ApiException(message: 'Authentication is required.');
-        }
-        final bool ready = _e2eReady ||
-            await _prepareE2E(
-              forceRefresh: true,
-            );
-        if (!ready) {
-          throw E2EChatSetupException(
-            _e2eErrorMessage ??
-                'End-to-end encryption is not ready for this conversation.',
+      if (userId == null) {
+        throw const ApiException(message: 'Authentication is required.');
+      }
+
+      final bool ready = _e2eReady ||
+          await _prepareE2E(
+            forceRefresh: true,
           );
-        }
+      if (!ready) {
+        throw E2EChatSetupException(
+          _e2eErrorMessage ??
+              'End-to-end encryption is not ready for this conversation.',
+        );
+      }
+
+      if (text.isNotEmpty) {
         final ChatMessage encryptedText =
             await ref.read(e2eChatCoordinatorProvider).sendEncryptedText(
                   userId: userId,
@@ -426,15 +503,18 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         textSent = true;
       }
 
-      final ImageUpload? attachment = _attachment;
-      if (attachment != null) {
-        final ChatMessage legacyImage =
-            await ref.read(chatRepositoryProvider).sendMessage(
-                  conversationId: _conversation.id,
-                  attachment: attachment,
+      if (selectedImage != null) {
+        final Uint8List localImageCopy = Uint8List.fromList(selectedImage);
+        final ChatMessage encryptedImage =
+            await ref.read(e2eChatCoordinatorProvider).sendEncryptedImage(
+                  userId: userId,
+                  conversation: _conversation,
+                  clearImageBytes: localImageCopy,
                 );
-        sentMessages.add(legacyImage);
-        attachmentSent = true;
+        _encryptedImageLoads[_encryptedImageCacheKey(encryptedImage)] =
+            Future<Uint8List>.value(localImageCopy);
+        sentMessages.add(encryptedImage);
+        imageSent = true;
       }
 
       if (!mounted) {
@@ -445,9 +525,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (textSent) {
           _messageController.clear();
         }
-        if (attachmentSent) {
-          _attachment = null;
-          _attachmentPreview = null;
+        if (imageSent) {
+          _selectedImageBytes = null;
         }
       });
       _scrollToBottom(animate: true);
@@ -462,9 +541,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (textSent) {
             _messageController.clear();
           }
-          if (attachmentSent) {
-            _attachment = null;
-            _attachmentPreview = null;
+          if (imageSent) {
+            _selectedImageBytes = null;
           }
           if (error is E2EChatSetupException ||
               error is E2ECryptoException ||
@@ -476,8 +554,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (apiError.statusCode == 403) {
           setState(() {
             _canSendMessages = false;
-            _attachment = null;
-            _attachmentPreview = null;
+            _selectedImageBytes = null;
           });
         }
         showMessage(context, apiError.message, error: true);
@@ -504,8 +581,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(
               message: _e2eReady
-                  ? 'End-to-end encrypted text is ready'
-                  : 'Secure text setup is not ready',
+                  ? 'End-to-end encrypted text and images are ready'
+                  : 'Secure text and image setup is not ready',
               child: Icon(
                 _e2eReady ? Icons.lock_outline : Icons.lock_clock_outlined,
               ),
@@ -546,8 +623,16 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                               }
                               final ChatMessage message = _messages[index - 1];
                               return _MessageBubble(
+                                key: ValueKey<String>(message.id),
                                 message: message,
                                 mine: message.senderUserId == currentUserId,
+                                loadEncryptedImage: _loadEncryptedImage,
+                                encryptedImageErrorText: (Object error) =>
+                                    _readableError(
+                                  error,
+                                  fallback:
+                                      'The encrypted image could not be loaded.',
+                                ),
                               );
                             },
                           ),
@@ -591,7 +676,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
-          if (_attachmentPreview != null && _canSendMessages)
+          if (_selectedImageBytes != null && _canSendMessages)
             Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               alignment: Alignment.centerLeft,
@@ -600,7 +685,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Image.memory(
-                      _attachmentPreview!,
+                      _selectedImageBytes!,
                       width: 90,
                       height: 90,
                       fit: BoxFit.cover,
@@ -612,8 +697,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: IconButton.filledTonal(
                       onPressed: () {
                         setState(() {
-                          _attachment = null;
-                          _attachmentPreview = null;
+                          _selectedImageBytes = null;
                         });
                       },
                       icon: const Icon(Icons.close, size: 18),
@@ -722,11 +806,11 @@ final class _E2EStatusBanner extends StatelessWidget {
           Expanded(
             child: Text(
               isPreparing
-                  ? 'Preparing end-to-end encrypted text...'
+                  ? 'Preparing end-to-end encrypted text and images...'
                   : isReady
-                      ? 'Text messages are end-to-end encrypted.'
+                      ? 'Text and image messages are end-to-end encrypted.'
                       : errorMessage ??
-                          'Secure text setup is waiting for all devices.',
+                          'Secure text and image setup is waiting for all devices.',
               style: TextStyle(color: foreground),
             ),
           ),
@@ -798,10 +882,18 @@ final class _OlderMessagesFooter extends StatelessWidget {
 }
 
 final class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.message, required this.mine});
+  const _MessageBubble({
+    required this.message,
+    required this.mine,
+    required this.loadEncryptedImage,
+    required this.encryptedImageErrorText,
+    super.key,
+  });
 
   final ChatMessage message;
   final bool mine;
+  final EncryptedImageLoader loadEncryptedImage;
+  final EncryptedImageErrorText encryptedImageErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -825,7 +917,11 @@ final class _MessageBubble extends StatelessWidget {
                 message.senderDisplayName,
                 style: Theme.of(context).textTheme.labelMedium,
               ),
-            _MessagePayload(message: message),
+            _MessagePayload(
+              message: message,
+              loadEncryptedImage: loadEncryptedImage,
+              encryptedImageErrorText: encryptedImageErrorText,
+            ),
             const SizedBox(height: 6),
             _EncryptionLabel(message: message),
             const SizedBox(height: 4),
@@ -841,9 +937,15 @@ final class _MessageBubble extends StatelessWidget {
 }
 
 final class _MessagePayload extends StatelessWidget {
-  const _MessagePayload({required this.message});
+  const _MessagePayload({
+    required this.message,
+    required this.loadEncryptedImage,
+    required this.encryptedImageErrorText,
+  });
 
   final ChatMessage message;
+  final EncryptedImageLoader loadEncryptedImage;
+  final EncryptedImageErrorText encryptedImageErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -882,12 +984,15 @@ final class _MessagePayload extends StatelessWidget {
       final String? clearText = message.decryptedContent;
       return Text(clearText ?? 'Decrypting encrypted message...');
     }
+    if (message.type == MessageType.image) {
+      return EncryptedImagePayload(
+        message: message,
+        load: loadEncryptedImage,
+        errorText: encryptedImageErrorText,
+      );
+    }
 
     final ({IconData icon, String label}) presentation = switch (message.type) {
-      MessageType.image => (
-          icon: Icons.image_outlined,
-          label: 'Encrypted image',
-        ),
       MessageType.voice => (
           icon: Icons.mic_none_outlined,
           label: 'Encrypted voice message',

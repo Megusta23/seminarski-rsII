@@ -10,6 +10,7 @@ export 'src/chat/e2e/e2e_chat_models.dart';
 export 'src/chat/e2e/e2e_chat_transport.dart';
 export 'src/chat/e2e/e2e_crypto_models.dart';
 export 'src/chat/e2e/e2e_crypto_service.dart';
+export 'src/chat/e2e/e2e_image_validation.dart';
 export 'src/chat/e2e/e2e_key_trust_store.dart';
 export 'src/chat/e2e/e2e_secure_storage.dart';
 export 'src/config/app_config.dart';

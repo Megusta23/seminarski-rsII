@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:ladder_social_core/src/chat/chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_chat_models.dart';
@@ -222,6 +224,72 @@ final class ChatRepository implements E2EChatTransport {
       throw ApiException.from(error);
     } on FormatException catch (error) {
       throw ApiException(message: error.message);
+    }
+  }
+
+  @override
+  Future<ChatMessage> sendEncryptedMedia({
+    required String conversationId,
+    required String senderDeviceKeyId,
+    required int keyVersion,
+    required E2EPrivateMessageType type,
+    required E2EEncryptedPayload payload,
+    int? durationMilliseconds,
+  }) async {
+    if (type == E2EPrivateMessageType.text) {
+      throw ArgumentError.value(
+        type,
+        'type',
+        'Use sendEncryptedText for text messages.',
+      );
+    }
+
+    try {
+      final FormData form = FormData.fromMap(<String, dynamic>{
+        'type': type.wireValue,
+        'senderDeviceKeyId': senderDeviceKeyId,
+        'keyVersion': keyVersion,
+        'attachment': MultipartFile.fromBytes(
+          payload.cipherTextWithMac,
+          filename: 'encrypted-${type.name}.bin',
+          contentType: DioMediaType.parse(
+            E2ECryptoConstants.encryptedMediaContentType,
+          ),
+        ),
+        'attachmentNonceBase64': payload.nonceBase64,
+        if (durationMilliseconds != null)
+          'durationMilliseconds': durationMilliseconds,
+      });
+      final Response<dynamic> response = await _client.dio.post<dynamic>(
+        '/api/conversations/$conversationId/messages/e2e',
+        data: form,
+        options: Options(contentType: 'multipart/form-data'),
+      );
+      return ChatMessage.fromJson(
+        jsonMap(response.data, context: 'encrypted media message'),
+      );
+    } on DioException catch (error) {
+      throw ApiException.from(error);
+    } on FormatException catch (error) {
+      throw ApiException(message: error.message);
+    }
+  }
+
+  @override
+  Future<Uint8List> downloadEncryptedAttachment(String attachmentUrl) async {
+    final String normalizedUrl = attachmentUrl.trim();
+    if (normalizedUrl.isEmpty) {
+      throw ArgumentError.value(
+        attachmentUrl,
+        'attachmentUrl',
+        'Attachment URL is required.',
+      );
+    }
+
+    try {
+      return await _client.getBytes(normalizedUrl);
+    } on DioException catch (error) {
+      throw ApiException.from(error);
     }
   }
 

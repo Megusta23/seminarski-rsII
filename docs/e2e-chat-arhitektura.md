@@ -7,11 +7,12 @@ Ovaj dokument se dopunjava kroz više malih implementacijskih paketa. Trenutno s
 1. backend persistence model i EF Core migracija;
 2. backend API za javne device ključeve, conversation-key envelope i ciphertext poruke;
 3. Flutter kriptografska osnova za X25519 identitet, HKDF, AES-256-GCM, secure storage i lokalni text/media roundtrip;
-4. produkcijski E2E Text tok: registracija uređaja, provjera javnih ključeva, bootstrap conversation keya, slanje ciphertexta i lokalna dekripcija.
+4. produkcijski E2E Text tok: registracija uređaja, provjera javnih ključeva, bootstrap conversation keya, slanje ciphertexta i lokalna dekripcija;
+5. produkcijski E2E Image tok: lokalna validacija i dekodiranje, lokalna AES-GCM enkripcija, `application/octet-stream` upload, autorizovani ciphertext download i prikaz tek nakon lokalne autentifikacije i dekripcije.
 
-Nove tekstualne poruke sa mobilnog chat ekrana više ne koriste legacy plaintext endpoint. Slanje teksta se prekida ako E2E priprema nije uspješna; nema automatskog fallbacka na plaintext. Postojeće `EncryptionVersion = 0` poruke ostaju čitljive i jasno označene kao legacy.
+Nove tekstualne i image poruke sa mobilnog chat ekrana više ne koriste legacy plaintext/media endpoint. Slanje se prekida ako E2E priprema nije uspješna; nema automatskog fallbacka na plaintext. Postojeće `EncryptionVersion = 0` poruke i slike ostaju čitljive i jasno označene kao legacy.
 
-Image picker u ovom inkrementalnom paketu još koristi postojeći legacy image tok, dok Voice i Video UI dolaze u narednim paketima. Zbog toga se kompletan multimedia chat još ne predstavlja kao završeno E2E rješenje.
+Voice i Video korisnički tokovi dolaze u narednim paketima. Zbog toga se kompletan multimedia chat još ne predstavlja kao završeno E2E rješenje.
 
 ## Izbor kriptografskih primitiva
 
@@ -136,6 +137,31 @@ Time se, na primjer, image ciphertext ne može autentifikovati kao video niti se
 Paralelni pozivi za registraciju uređaja, pripremu razgovora i učitavanje conversation keya dedupliciraju se u memoriji. Time polling, početno učitavanje i pritisak na Send ne pokreću više konkurentnih bootstrap operacija za isti razgovor.
 
 Klijent validira da backend response nakon slanja sadrži isti conversation ID, sender user ID, key version, ciphertext i nonce koji su poslani, da je `Content = null` i da nema attachmenta. Ako server vrati izmijenjen payload ili pokušaj plaintext sadržaja, lokalni UI odbija response.
+
+## Flutter E2E Image orkestracija
+
+Mobilni image tok koristi isti `E2EChatCoordinator` i conversation key kao E2E Text, ali čisti image bajtovi nikada ne ulaze u repository request. Tok slanja je:
+
+1. korisnik bira sliku iz galerije;
+2. klijent prije mrežnog poziva provjerava maksimalnu veličinu i JPEG, PNG ili WebP magic bytes;
+3. Flutter image codec pokušava dekodirati sliku, čime se odbijaju oštećeni ili samo preimenovani fajlovi;
+4. coordinator pravi defensive kopiju čistih bajtova i lokalno ih enkriptuje kao `E2EPrivateMessageType.image`;
+5. repository šalje samo `ciphertext || authenticationTag`, nonce, sender device-key ID i key version;
+6. ciphertext se šalje pod generičkim nazivom `.bin` i MIME tipom `application/octet-stream`, pa server ne dobija originalni naziv, MIME ni magic bytes slike;
+7. klijent provjerava da backend response ne sadrži `Content`, `EncryptedContent` ili text nonce i da attachment metadata tačno odgovara poslanom ciphertextu.
+
+Tok prijema je:
+
+1. chat dobija samo E2E attachment metadata;
+2. `EncryptedImagePayload` prikazuje loading stanje, ne sliku;
+3. participant-autorizovani media endpoint vraća ciphertext bajtove;
+4. klijent provjerava veličinu i metadata ugovor;
+5. conversation key se učitava ili lokalno oporavlja iz envelope-a;
+6. AES-256-GCM authentication i dekripcija izvršavaju se lokalno, uz `Image` message type u associated data;
+7. dekriptovani bajtovi ponovo prolaze magic-byte validaciju;
+8. `Image.memory` dobija clear bytes tek nakon uspješne autentifikacije; failure stanje nudi eksplicitni Retry.
+
+Promijenjen ciphertext, nonce, conversation ID, key version ili media type ne proizvodi djelimičan prikaz. Authentication mora potpuno uspjeti prije nego što widget dobije clear bytes. Uspješno poslana vlastita slika privremeno se kešira samo u memoriji procesa radi trenutnog prikaza; nije zapisana u obični lokalni storage.
 
 ## TOFU i pinning javnih ključeva
 
@@ -280,6 +306,12 @@ Produkcijski E2E Text tok:
 bash scripts/test-review-e2e-chat-text.sh
 ```
 
+Produkcijski E2E Image tok:
+
+```bash
+bash scripts/test-review-e2e-chat-image.sh
+```
+
 Text testovi provjeravaju:
 
 - automatsku registraciju javnog device ključa bez private key polja;
@@ -296,11 +328,22 @@ Text testovi provjeravaju:
 - očuvanje i jasno označavanje legacy poruka;
 - parsiranje Base64 ciphertext/nonce polja bez plaintext fallbacka.
 
+Image testovi dodatno provjeravaju:
+
+- lokalno prepoznavanje JPEG, PNG i WebP magic bytes i odbijanje preimenovanog ne-image fajla;
+- Alice uploaduje samo ciphertext, a Bob dobija identične clear image bajtove tek nakon lokalne dekripcije;
+- poznati image plaintext marker nije prisutan u serverskom attachment storage-u;
+- promijenjen attachment ciphertext ili nonce pada na AES-GCM authentication provjeri;
+- pogrešan server MIME/metadata response se odbija;
+- razlika između deklarisane i preuzete ciphertext veličine se odbija prije dekripcije;
+- E2E Image zapis sa plaintext sadržajem se odbija prije download poziva;
+- UI ne kreira `Image.memory` prije završetka autentifikovanog loadera i nudi Retry nakon greške;
+- produkcijski chat ekran ne poziva legacy `sendMessage` za novu sliku.
+
 ## Ograničenja trenutne inkrementalne faze
 
-E2E Text tok je aktivan, ali kompletna profesorova multimedia stavka još nije završena:
+E2E Text i E2E Image tokovi su aktivni, ali kompletna profesorova multimedia stavka još nije završena:
 
-- image picker trenutno ostaje na legacy image endpointu; naredni paket mora lokalno enkriptovati image bytes, uploadovati `application/octet-stream`, preuzeti ciphertext i prikazati sliku tek nakon lokalne dekripcije;
 - Voice recorder, permission, preview, upload/decrypt i playback još nisu spojeni na UI;
 - Video picker/camera, preview, validacija, upload/decrypt i playback još nisu spojeni na UI;
 - nema korisničkog interfejsa za opoziv izgubljenog uređaja; `RevokedAtUtc` ostaje spreman za kasniji device-management tok;
@@ -309,4 +352,4 @@ E2E Text tok je aktivan, ali kompletna profesorova multimedia stavka još nije z
 - protokol koristi verzionisani conversation key, a ne Double Ratchet, pa ne obećava per-message forward secrecy;
 - TOFU otkriva promjenu nakon prvog kontakta, ali nema out-of-band safety-number verifikaciju.
 
-Legacy endpoint ostaje privremeno potreban samo za postojeći Image tok i čitanje stare historije. Produkcijski Text submit ga više ne poziva. Cijeli chat se može označiti kao kompletno E2E tek nakon završetka Image, Voice i Video paketa i završnog smoke testa.
+Legacy endpoint ostaje u API-ju radi kompatibilnosti sa starom historijom i starijim klijentskim verzijama, ali ažurirani produkcijski chat ekran ga više ne poziva ni za Text ni za Image submit. Cijeli chat se može označiti kao kompletno E2E tek nakon završetka Voice i Video paketa i završnog smoke testa.

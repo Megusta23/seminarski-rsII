@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:ladder_social_core/src/chat/chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_models.dart';
@@ -28,4 +30,15 @@ abstract interface class E2EChatTransport {
     required int keyVersion,
     required E2EEncryptedPayload payload,
   });
+
+  Future<ChatMessage> sendEncryptedMedia({
+    required String conversationId,
+    required String senderDeviceKeyId,
+    required int keyVersion,
+    required E2EPrivateMessageType type,
+    required E2EEncryptedPayload payload,
+    int? durationMilliseconds,
+  });
+
+  Future<Uint8List> downloadEncryptedAttachment(String attachmentUrl);
 }

@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:ladder_social_core/src/chat/chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_chat_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_chat_transport.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_models.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_service.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_key_trust_store.dart';
+import 'package:ladder_social_core/src/chat/e2e/e2e_image_validation.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
 
 typedef E2EDelay = Future<void> Function(Duration duration);
@@ -169,6 +172,92 @@ final class E2EChatCoordinator {
       requestPayload: encrypted,
     );
     return response.withDecryptedContent(normalizedText);
+  }
+
+  Future<ChatMessage> sendEncryptedImage({
+    required String userId,
+    required ConversationItem conversation,
+    required List<int> clearImageBytes,
+  }) async {
+    if (!conversation.canSendMessages) {
+      throw const E2EChatSetupException(
+        'New messages are disabled for this conversation. Message history '
+        'remains available.',
+      );
+    }
+
+    final Uint8List localImageBytes = Uint8List.fromList(clearImageBytes);
+    E2EImageValidator.validate(localImageBytes);
+
+    final _ConversationContext context = await _loadConversationContext(
+      userId: userId,
+      conversation: conversation,
+      keyVersion: currentKeyVersion,
+      forceRefresh: true,
+    );
+    final E2EEncryptedPayload encrypted = await _cryptoService.encryptMedia(
+      conversationId: context.conversationId,
+      keyVersion: context.keyVersion,
+      type: E2EPrivateMessageType.image,
+      conversationKey: context.conversationKey,
+      clearBytes: localImageBytes,
+    );
+    final ChatMessage response = await _transport.sendEncryptedMedia(
+      conversationId: context.conversationId,
+      senderDeviceKeyId: context.currentDevice.id,
+      keyVersion: context.keyVersion,
+      type: E2EPrivateMessageType.image,
+      payload: encrypted,
+    );
+
+    _validateEncryptedMediaResponse(
+      response: response,
+      context: context,
+      type: E2EPrivateMessageType.image,
+      requestPayload: encrypted,
+    );
+    return response;
+  }
+
+  Future<Uint8List> downloadAndDecryptImage({
+    required String userId,
+    required ChatMessage message,
+  }) async {
+    final _EncryptedMediaDescriptor media =
+        _validateEncryptedImageMessage(message);
+    final E2EConversationKey conversationKey =
+        await _readOrRecoverConversationKey(
+      userId: userId,
+      conversationId: message.conversationId,
+      keyVersion: media.keyVersion,
+    );
+    final Uint8List cipherText =
+        await _transport.downloadEncryptedAttachment(media.attachmentUrl);
+    if (cipherText.length != media.encryptedSizeBytes) {
+      throw const E2EChatSetupException(
+        'The downloaded encrypted image size does not match the server '
+        'message metadata.',
+      );
+    }
+    if (cipherText.length <= E2ECryptoConstants.authenticationTagBytes ||
+        cipherText.length > E2ECryptoConstants.maximumEncryptedMediaBytes) {
+      throw const E2EChatSetupException(
+        'The downloaded encrypted image has an invalid ciphertext size.',
+      );
+    }
+
+    final Uint8List clearImage = await _cryptoService.decryptMedia(
+      conversationId: message.conversationId,
+      keyVersion: media.keyVersion,
+      type: E2EPrivateMessageType.image,
+      conversationKey: conversationKey,
+      payload: E2EEncryptedPayload(
+        cipherTextWithMac: cipherText,
+        nonce: media.nonce,
+      ),
+    );
+    E2EImageValidator.validate(clearImage);
+    return clearImage;
   }
 
   Future<List<ChatMessage>> decryptMessages({
@@ -1001,6 +1090,108 @@ final class E2EChatCoordinator {
     }
   }
 
+  void _validateEncryptedMediaResponse({
+    required ChatMessage response,
+    required _ConversationContext context,
+    required E2EPrivateMessageType type,
+    required E2EEncryptedPayload requestPayload,
+    int? durationMilliseconds,
+  }) {
+    final String? attachmentId = response.attachmentId;
+    final String? attachmentUrl = response.attachmentUrl;
+    final List<int>? attachmentNonce = response.attachmentNonce;
+    final int? attachmentSizeBytes = response.attachmentSizeBytes;
+    if (_identifier(response.conversationId, 'message.conversationId') !=
+            context.conversationId ||
+        _identifier(response.senderUserId, 'message.senderUserId') !=
+            context.userId ||
+        response.type != type.wireValue ||
+        response.encryptionVersion != ChatEncryptionVersion.clientE2E ||
+        response.keyVersion != context.keyVersion ||
+        response.content != null ||
+        response.encryptedContent != null ||
+        response.contentNonce != null ||
+        attachmentId == null ||
+        attachmentUrl == null ||
+        response.attachmentMimeType?.toLowerCase() !=
+            E2ECryptoConstants.encryptedMediaContentType ||
+        attachmentNonce == null ||
+        response.attachmentEncryptionVersion !=
+            ChatEncryptionVersion.clientE2E ||
+        response.attachmentKeyVersion != context.keyVersion ||
+        attachmentSizeBytes != requestPayload.cipherTextWithMac.length ||
+        response.attachmentDurationMilliseconds != durationMilliseconds ||
+        !_bytesEqual(attachmentNonce, requestPayload.nonce) ||
+        !_isExpectedAttachmentUrl(attachmentUrl, attachmentId)) {
+      throw E2EChatSetupException(
+        'The server returned an invalid response for the encrypted '
+        '${type.name} message.',
+      );
+    }
+  }
+
+  _EncryptedMediaDescriptor _validateEncryptedImageMessage(
+    ChatMessage message,
+  ) {
+    if (message.encryptionVersion != ChatEncryptionVersion.clientE2E ||
+        message.type != MessageType.image ||
+        message.content != null ||
+        message.encryptedContent != null ||
+        message.contentNonce != null) {
+      throw const E2EChatSetupException(
+        'The encrypted image message contains invalid plaintext or message '
+        'payload metadata.',
+      );
+    }
+
+    final int? keyVersion = message.keyVersion;
+    final String? attachmentId = message.attachmentId;
+    final String? attachmentUrl = message.attachmentUrl;
+    final List<int>? attachmentNonce = message.attachmentNonce;
+    final int? attachmentSizeBytes = message.attachmentSizeBytes;
+    if (keyVersion == null ||
+        keyVersion < 1 ||
+        attachmentId == null ||
+        attachmentUrl == null ||
+        message.attachmentMimeType?.toLowerCase() !=
+            E2ECryptoConstants.encryptedMediaContentType ||
+        attachmentNonce == null ||
+        attachmentNonce.length != E2ECryptoConstants.nonceBytes ||
+        message.attachmentEncryptionVersion !=
+            ChatEncryptionVersion.clientE2E ||
+        message.attachmentKeyVersion != keyVersion ||
+        attachmentSizeBytes == null ||
+        attachmentSizeBytes <= E2ECryptoConstants.authenticationTagBytes ||
+        attachmentSizeBytes > E2ECryptoConstants.maximumEncryptedMediaBytes ||
+        message.attachmentDurationMilliseconds != null ||
+        !_isExpectedAttachmentUrl(attachmentUrl, attachmentId)) {
+      throw const E2EChatSetupException(
+        'The encrypted image message is missing valid attachment metadata.',
+      );
+    }
+
+    return _EncryptedMediaDescriptor(
+      attachmentUrl: attachmentUrl,
+      nonce: attachmentNonce,
+      encryptedSizeBytes: attachmentSizeBytes,
+      keyVersion: keyVersion,
+    );
+  }
+
+  bool _isExpectedAttachmentUrl(String attachmentUrl, String attachmentId) {
+    final Uri? uri = Uri.tryParse(attachmentUrl.trim());
+    if (uri == null ||
+        uri.isAbsolute ||
+        uri.host.isNotEmpty ||
+        uri.query.isNotEmpty ||
+        uri.fragment.isNotEmpty) {
+      return false;
+    }
+    final String expectedPath =
+        '/api/media/message-attachments/${attachmentId.trim().toLowerCase()}';
+    return uri.path.toLowerCase() == expectedPath;
+  }
+
   bool _hasAttachmentMetadata(ChatMessage message) =>
       message.attachmentId != null ||
       message.attachmentUrl != null ||
@@ -1049,4 +1240,18 @@ final class _ConversationContext {
   final List<E2EDeviceKeyRecord> deviceKeys;
   final int keyVersion;
   final E2EConversationKey conversationKey;
+}
+
+final class _EncryptedMediaDescriptor {
+  _EncryptedMediaDescriptor({
+    required this.attachmentUrl,
+    required List<int> nonce,
+    required this.encryptedSizeBytes,
+    required this.keyVersion,
+  }) : nonce = Uint8List.fromList(nonce);
+
+  final String attachmentUrl;
+  final Uint8List nonce;
+  final int encryptedSizeBytes;
+  final int keyVersion;
 }

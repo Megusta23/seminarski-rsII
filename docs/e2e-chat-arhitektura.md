@@ -14,7 +14,7 @@ Ovaj dokument se dopunjava kroz više malih implementacijskih paketa. Trenutno s
 
 Nove tekstualne, image, voice i video poruke sa mobilnog chat ekrana više ne koriste legacy plaintext/media endpoint. Slanje se prekida ako E2E priprema nije uspješna; nema automatskog fallbacka na plaintext. Postojeće `EncryptionVersion = 0` poruke i slike ostaju čitljive i jasno označene kao legacy.
 
-Sva četiri privatna tipa poruke sada imaju klijentski E2E tok. Preostaje objedinjeni završni smoke test, dokumentacijska provjera i priprema artefakata za predaju.
+Sva četiri privatna tipa poruke sada imaju klijentski E2E tok. Završna hardening faza uklanja legacy plaintext write ugovor iz API-ja i Flutter repository-ja, zadržava samo čitanje postojeće `EncryptionVersion = 0` historije i uvodi objedinjeni test `scripts/test-review-e2e-multimedia-chat.sh`.
 
 ## Izbor kriptografskih primitiva
 
@@ -303,6 +303,19 @@ Server provjerava da sender device pripada trenutno autentifikovanom korisniku i
 
 Envelope može preuzeti samo vlasnik navedenog recipient device ključa koji je ujedno participant razgovora. Server vraća ciphertext i javne identifikatore; nema mogućnost otvaranja envelope-a.
 
+## Legacy historija i uklonjena plaintext write putanja
+
+Postojeće `EncryptionVersion = 0` poruke i legacy image attachmenti ostaju dostupni participantima kroz isti paginirani read endpoint. To je read-only kompatibilnost; postojeći plaintext se ne prepisuje serverskom enkripcijom i ne označava kao E2E.
+
+Produkcijski write ugovor više ne sadrži:
+
+- `POST /api/conversations/{conversationId}/messages`;
+- `SendMessageForm`;
+- `SendMessageCommand` i `IChatService.SendMessageAsync()`;
+- Flutter `ChatRepository.sendMessage()`.
+
+Pošto GET ruta za historiju ostaje, pokušaj POST zahtjeva na staru putanju završava sa HTTP 405 i ne kreira poruku, attachment ni notifikaciju. Jedina javna write putanja za privatni korisnički sadržaj je `/messages/e2e`, koja ne prima plaintext polje.
+
 ## Ciphertext poruke
 
 `POST /api/conversations/{conversationId}/messages/e2e`
@@ -326,7 +339,8 @@ Prije prihvatanja poruke backend provjerava:
 - vlasništvo nad sender device ključem;
 - postojanje aktivnog device ključa za svakog participant-a;
 - postojanje conversation-key envelope-a za svaki aktivni uređaj i traženi `KeyVersion`;
-- dozvoljeni tip poruke, veličine nonce-a i obavezna media polja.
+- dozvoljeni tip poruke, veličine nonce-a i obavezna media polja;
+- Voice trajanje od 0,3 sekunde do 5 minuta i Video trajanje od 0,3 sekunde do 2 minute, usklađeno sa mobilnim validatorima.
 
 Za E2E poruku `Message.Content` se uvijek postavlja na `null`. Ciphertext teksta se čuva u `Message.EncryptedContent`, a enkriptovani media bajtovi u storage-u sa `.bin` nastavkom i MIME tipom `application/octet-stream`.
 
@@ -374,6 +388,12 @@ Server ne treba vidjeti:
 - conversation key u plaintext obliku.
 
 ## Fokusirane provjere
+
+Objedinjena završna provjera builda, testova, EF snapshot-a, Docker runtimea, legacy-write zabrane, autorizacije, notifikacija i SQL ciphertext invarianti:
+
+```bash
+bash scripts/test-review-e2e-multimedia-chat.sh http://localhost:5001
+```
 
 Backend ugovor nakon podizanja Docker okruženja:
 
@@ -467,7 +487,7 @@ Video testovi dodatno provjeravaju:
 - Retry ponavlja ciphertext download, a play/pause/seek/progress rade tek nad lokalnim clear temporary fajlom;
 - produkcijski chat ekran nema legacy video fallback.
 
-## Ograničenja trenutne inkrementalne faze
+## Ograničenja i svjesne granice protokola
 
 E2E Text, E2E Image, E2E Voice i E2E Video tokovi su aktivni. Preostala ograničenja protokola i uređaja su:
 
@@ -477,4 +497,4 @@ E2E Text, E2E Image, E2E Voice i E2E Video tokovi su aktivni. Preostala ogranič
 - protokol koristi verzionisani conversation key, a ne Double Ratchet, pa ne obećava per-message forward secrecy;
 - TOFU otkriva promjenu nakon prvog kontakta, ali nema out-of-band safety-number verifikaciju.
 
-Legacy endpoint ostaje u API-ju radi kompatibilnosti sa starom historijom i starijim klijentskim verzijama, ali ažurirani produkcijski chat ekran ga više ne poziva za Text, Image, Voice ni Video submit. Kompletna profesorova stavka označava se završenom tek nakon objedinjenog smoke testa, ponovne provjere baze, notifikacija i autorizacije te finalnog release pakovanja.
+Legacy plaintext write endpoint je uklonjen. Kompatibilnost se odnosi samo na čitanje već postojećih `EncryptionVersion = 0` zapisa; novi Text, Image, Voice i Video sadržaj može nastati samo kroz ciphertext endpoint. Objedinjeni završni smoke test dodatno pokušava poslati poznati plaintext marker starom rutom, očekuje HTTP 405 i SQL provjerom potvrđuje da marker nije upisan u poruke ni notifikacije.

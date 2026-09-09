@@ -205,6 +205,88 @@ def check_antipatterns(files: list[Path]) -> list[str]:
     return errors
 
 
+def check_e2e_chat_invariants() -> list[str]:
+    errors: list[str] = []
+    controller_path = ROOT / "src/LadderSocial.Api/Controllers/ChatController.cs"
+    contracts_path = ROOT / "src/LadderSocial.Application/Features/Chat/ChatContracts.cs"
+    service_path = ROOT / "src/LadderSocial.Infrastructure/Services/ChatService.cs"
+    repository_path = ROOT / "packages/ladder_social_core/lib/src/chat/chat_repository.dart"
+    legacy_form_path = ROOT / "src/LadderSocial.Api/Models/SendMessageForm.cs"
+
+    required_paths = (controller_path, contracts_path, service_path, repository_path)
+    if any(not path.exists() for path in required_paths):
+        return errors
+
+    controller = controller_path.read_text(encoding="utf-8", errors="replace")
+    contracts = contracts_path.read_text(encoding="utf-8", errors="replace")
+    service = service_path.read_text(encoding="utf-8", errors="replace")
+    repository = repository_path.read_text(encoding="utf-8", errors="replace")
+
+    if legacy_form_path.exists():
+        errors.append("Legacy plaintext chat form still exists: src/LadderSocial.Api/Models/SendMessageForm.cs")
+    if '[HttpPost("{conversationId:guid}/messages")]' in controller:
+        errors.append("Legacy plaintext chat POST route is still exposed.")
+    if '[HttpPost("{conversationId:guid}/messages/e2e")]' not in controller:
+        errors.append("The E2E ciphertext chat POST route is missing.")
+    if "SendMessageCommand" in contracts or "SendMessageRequest" in contracts:
+        errors.append("Legacy plaintext chat contracts are still exposed.")
+    if "Task<MessageResponse> SendMessageAsync" in contracts:
+        errors.append("IChatService still exposes the legacy plaintext write method.")
+    if "public async Task<MessageResponse> SendMessageAsync(" in service:
+        errors.append("ChatService still persists legacy plaintext messages.")
+    if "Future<ChatMessage> sendMessage({" in repository:
+        errors.append("Flutter ChatRepository still exposes the legacy plaintext write method.")
+
+    expected_e2e_fixtures = (
+        ROOT / "scripts/test-social-features.sh",
+        ROOT / "scripts/test-review-pagination-print.sh",
+    )
+    for script_path in expected_e2e_fixtures:
+        if not script_path.exists():
+            errors.append(f"Required smoke test is missing: {script_path.relative_to(ROOT)}")
+            continue
+        script = script_path.read_text(encoding="utf-8", errors="replace")
+        if "e2e_send_text" not in script:
+            errors.append(
+                f"{script_path.relative_to(ROOT)} still lacks ciphertext-only chat fixtures."
+            )
+
+    allowed_legacy_rejection_scripts = {
+        "test-review-chat-notifications.sh",
+        "test-review-e2e-chat-backend.sh",
+    }
+    legacy_post_pattern = re.compile(
+        r'(?:multipart_request|http_request)\s+POST\s+'
+        r'"\$\{BASE_URL\}/api/conversations/\$\{[^}]+\}/messages"'
+    )
+    for script_path in (ROOT / "scripts").glob("*.sh"):
+        if script_path.name in allowed_legacy_rejection_scripts:
+            continue
+        script = script_path.read_text(encoding="utf-8", errors="replace")
+        if legacy_post_pattern.search(script):
+            errors.append(
+                f"{script_path.relative_to(ROOT)} still posts to the removed plaintext route."
+            )
+
+    request_collection_path = ROOT / "requests/application.http"
+    if request_collection_path.exists():
+        request_collection = request_collection_path.read_text(
+            encoding="utf-8", errors="replace"
+        )
+        if (
+            "POST {{baseUrl}}/api/conversations/{{conversationId}}/messages\n"
+            in request_collection
+        ):
+            errors.append("requests/application.http still documents the legacy plaintext route.")
+        if (
+            "POST {{baseUrl}}/api/conversations/{{conversationId}}/messages/e2e"
+            not in request_collection
+        ):
+            errors.append("requests/application.http is missing the E2E ciphertext write example.")
+
+    return errors
+
+
 def main() -> int:
     files = source_files()
     errors: list[str] = []
@@ -215,6 +297,7 @@ def main() -> int:
     errors.extend(check_local_dart_imports(files))
     errors.extend(check_tracked_secrets())
     errors.extend(check_antipatterns(files))
+    errors.extend(check_e2e_chat_invariants())
 
     if errors:
         print("Static source checks failed:", file=sys.stderr)

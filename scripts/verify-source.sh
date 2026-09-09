@@ -15,9 +15,9 @@ echo "==> Running offline static source checks"
 python3 scripts/static-source-check.py
 
 echo "==> Checking shell-script syntax"
-for script_file in scripts/*.sh; do
+while IFS= read -r -d '' script_file; do
   bash -n "${script_file}"
-done
+done < <(find scripts -type f -name '*.sh' -print0)
 
 echo "==> Restoring, building and testing .NET solution"
 dotnet restore LadderSocial.sln

@@ -85,23 +85,6 @@ public sealed class ChatController(
         CancellationToken cancellationToken) =>
         Ok(await chatService.GetMessagesAsync(conversationId, request, cancellationToken));
 
-    [HttpPost("{conversationId:guid}/messages")]
-    [Consumes("multipart/form-data")]
-    public async Task<ActionResult<MessageResponse>> SendMessage(
-        Guid conversationId,
-        [FromForm] SendMessageForm form,
-        CancellationToken cancellationToken)
-    {
-        var attachment = form.Attachment is null
-            ? null
-            : await FormFileReader.ReadAsync(form.Attachment, cancellationToken);
-        var message = await chatService.SendMessageAsync(
-            conversationId,
-            new SendMessageCommand(form.Content, attachment),
-            cancellationToken);
-        return StatusCode(StatusCodes.Status201Created, message);
-    }
-
     [HttpPost("{conversationId:guid}/messages/e2e")]
     [Consumes("multipart/form-data")]
     public async Task<ActionResult<MessageResponse>> SendEncryptedMessage(

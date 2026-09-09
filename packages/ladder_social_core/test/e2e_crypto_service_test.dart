@@ -341,6 +341,74 @@ void main() {
     }
   });
 
+  test('crypto layer enforces voice and video duration boundaries', () async {
+    final E2ECryptoService service =
+        _service(_MemorySecureStorage(), seed: 751);
+    final E2EConversationKey key = await service.generateConversationKey();
+    final Uint8List clearBytes = Uint8List.fromList(<int>[1, 2, 3, 4, 5]);
+
+    for (final (E2EPrivateMessageType, int) validCase
+        in <(E2EPrivateMessageType, int)>[
+      (
+        E2EPrivateMessageType.voice,
+        E2ECryptoConstants.minimumMediaDurationMilliseconds,
+      ),
+      (
+        E2EPrivateMessageType.voice,
+        E2ECryptoConstants.maximumVoiceDurationMilliseconds,
+      ),
+      (
+        E2EPrivateMessageType.video,
+        E2ECryptoConstants.minimumMediaDurationMilliseconds,
+      ),
+      (
+        E2EPrivateMessageType.video,
+        E2ECryptoConstants.maximumVideoDurationMilliseconds,
+      ),
+    ]) {
+      await service.encryptMedia(
+        conversationId: conversationId,
+        keyVersion: 1,
+        type: validCase.$1,
+        conversationKey: key,
+        clearBytes: clearBytes,
+        durationMilliseconds: validCase.$2,
+      );
+    }
+
+    for (final (E2EPrivateMessageType, int) invalidCase
+        in <(E2EPrivateMessageType, int)>[
+      (
+        E2EPrivateMessageType.voice,
+        E2ECryptoConstants.minimumMediaDurationMilliseconds - 1,
+      ),
+      (
+        E2EPrivateMessageType.voice,
+        E2ECryptoConstants.maximumVoiceDurationMilliseconds + 1,
+      ),
+      (
+        E2EPrivateMessageType.video,
+        E2ECryptoConstants.minimumMediaDurationMilliseconds - 1,
+      ),
+      (
+        E2EPrivateMessageType.video,
+        E2ECryptoConstants.maximumVideoDurationMilliseconds + 1,
+      ),
+    ]) {
+      await expectLater(
+        service.encryptMedia(
+          conversationId: conversationId,
+          keyVersion: 1,
+          type: invalidCase.$1,
+          conversationKey: key,
+          clearBytes: clearBytes,
+          durationMilliseconds: invalidCase.$2,
+        ),
+        throwsArgumentError,
+      );
+    }
+  });
+
   test('voice duration is authenticated as message metadata', () async {
     final E2ECryptoService service = _service(_MemorySecureStorage(), seed: 76);
     final E2EConversationKey key = await service.generateConversationKey();

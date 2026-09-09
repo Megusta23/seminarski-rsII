@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/smoke-test-helpers.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-chat-smoke-helpers.sh"
 initialize_smoke_test "${1:-}"
 
 suffix="$(date +%s)-$$"
@@ -45,12 +46,44 @@ status="$(http_request POST "${BASE_URL}/api/conversations/direct/${C_ID}" "${TE
 expect_status "$status" 201 "start second paged conversation" "${TEMP_DIR}/ac-conversation.json"
 AC_CONVERSATION="$(json_get "${TEMP_DIR}/ac-conversation.json" id)"
 
+status="$(e2e_register_device "$A_TOKEN" "pagination-alice-${suffix}" "$(e2e_base64_sequence 1 32)" "${TEMP_DIR}/alice-device.json")"
+expect_status "$status" 200 "Alice registers a public chat device key" "${TEMP_DIR}/alice-device.json"
+A_DEVICE_KEY_ID="$(json_get "${TEMP_DIR}/alice-device.json" id)"
+status="$(e2e_register_device "$B_TOKEN" "pagination-bob-${suffix}" "$(e2e_base64_sequence 40 32)" "${TEMP_DIR}/bob-device.json")"
+expect_status "$status" 200 "Bob registers a public chat device key" "${TEMP_DIR}/bob-device.json"
+B_DEVICE_KEY_ID="$(json_get "${TEMP_DIR}/bob-device.json" id)"
+status="$(e2e_register_device "$C_TOKEN" "pagination-carol-${suffix}" "$(e2e_base64_sequence 80 32)" "${TEMP_DIR}/carol-device.json")"
+expect_status "$status" 200 "Carol registers a public chat device key" "${TEMP_DIR}/carol-device.json"
+C_DEVICE_KEY_ID="$(json_get "${TEMP_DIR}/carol-device.json" id)"
+
+status="$(e2e_put_envelope "$AB_CONVERSATION" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$A_DEVICE_KEY_ID" "$(e2e_base64_sequence 120 48)" "$(e2e_base64_sequence 170 12)" "${TEMP_DIR}/ab-alice-envelope.json")"
+expect_status "$status" 200 "Alice creates her AB conversation-key envelope" "${TEMP_DIR}/ab-alice-envelope.json"
+status="$(e2e_put_envelope "$AB_CONVERSATION" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$B_DEVICE_KEY_ID" "$(e2e_base64_sequence 190 48)" "$(e2e_base64_sequence 240 12)" "${TEMP_DIR}/ab-bob-envelope.json")"
+expect_status "$status" 200 "Alice creates Bob's AB conversation-key envelope" "${TEMP_DIR}/ab-bob-envelope.json"
+
+status="$(e2e_put_envelope "$AC_CONVERSATION" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$A_DEVICE_KEY_ID" "$(e2e_base64_sequence 20 48)" "$(e2e_base64_sequence 70 12)" "${TEMP_DIR}/ac-alice-envelope.json")"
+expect_status "$status" 200 "Alice creates her AC conversation-key envelope" "${TEMP_DIR}/ac-alice-envelope.json"
+status="$(e2e_put_envelope "$AC_CONVERSATION" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$C_DEVICE_KEY_ID" "$(e2e_base64_sequence 90 48)" "$(e2e_base64_sequence 140 12)" "${TEMP_DIR}/ac-carol-envelope.json")"
+expect_status "$status" 200 "Alice creates Carol's AC conversation-key envelope" "${TEMP_DIR}/ac-carol-envelope.json"
+
 for index in 1 2 3 4 5; do
-  status="$(multipart_request POST "${BASE_URL}/api/conversations/${AB_CONVERSATION}/messages" "${TEMP_DIR}/message-${index}.json" "$A_TOKEN" -F "content=Paged message ${index} ${suffix}")"
-  expect_status "$status" 201 "create paged message ${index}" "${TEMP_DIR}/message-${index}.json"
+  status="$(e2e_send_text \
+    "$AB_CONVERSATION" \
+    "$A_TOKEN" \
+    "$A_DEVICE_KEY_ID" \
+    "$(e2e_base64_text "pagination-e2e-ciphertext-${index}-${suffix}-authentication-tag")" \
+    "$(e2e_base64_sequence "$((10 + index * 13))" 12)" \
+    "${TEMP_DIR}/message-${index}.json")"
+  expect_status "$status" 201 "create encrypted paged message ${index}" "${TEMP_DIR}/message-${index}.json"
 done
-status="$(multipart_request POST "${BASE_URL}/api/conversations/${AC_CONVERSATION}/messages" "${TEMP_DIR}/message-c.json" "$A_TOKEN" -F "content=Second conversation ${suffix}")"
-expect_status "$status" 201 "create second-conversation message" "${TEMP_DIR}/message-c.json"
+status="$(e2e_send_text \
+  "$AC_CONVERSATION" \
+  "$A_TOKEN" \
+  "$A_DEVICE_KEY_ID" \
+  "$(e2e_base64_text "pagination-second-conversation-${suffix}-authentication-tag")" \
+  "$(e2e_base64_sequence 210 12)" \
+  "${TEMP_DIR}/message-c.json")"
+expect_status "$status" 201 "create encrypted second-conversation message" "${TEMP_DIR}/message-c.json"
 
 status="$(http_request GET "${BASE_URL}/api/conversations?page=1&pageSize=1" "${TEMP_DIR}/conversations-1.json" '' "$A_TOKEN")"
 expect_status "$status" 200 "load first conversation page" "${TEMP_DIR}/conversations-1.json"

@@ -283,7 +283,8 @@ checks = {
             'produkcijski E2E Video tok',
             'Flutter E2E Video orkestracija',
             'scripts/test-review-e2e-chat-video.sh',
-            'objedinjenog smoke testa',
+            'scripts/test-review-e2e-multimedia-chat.sh',
+            'Legacy plaintext write endpoint je uklonjen',
         )
     ),
     'core video tests cover format roundtrip tamper duration and validation': all(

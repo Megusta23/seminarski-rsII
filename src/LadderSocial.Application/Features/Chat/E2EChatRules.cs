@@ -189,13 +189,26 @@ public static class E2EChatRules
                     errors["durationMilliseconds"] = ["Image messages may not contain media duration."];
                 }
             }
-            else if (!command.DurationMilliseconds.HasValue ||
-                     command.DurationMilliseconds.Value is < 1 or > ChatCryptoConstants.MaximumMediaDurationMilliseconds)
+            else if (!command.DurationMilliseconds.HasValue)
             {
                 errors["durationMilliseconds"] =
-                [
-                    "Voice and video duration must be between 1 millisecond and 60 minutes."
-                ];
+                ["Voice and video messages require authenticated duration metadata."];
+            }
+            else if (command.Type == MessageType.Voice &&
+                     command.DurationMilliseconds.Value is
+                         < ChatCryptoConstants.MinimumMediaDurationMilliseconds or
+                         > ChatCryptoConstants.MaximumVoiceDurationMilliseconds)
+            {
+                errors["durationMilliseconds"] =
+                ["Voice duration must be between 0.3 seconds and 5 minutes."];
+            }
+            else if (command.Type == MessageType.Video &&
+                     command.DurationMilliseconds.Value is
+                         < ChatCryptoConstants.MinimumMediaDurationMilliseconds or
+                         > ChatCryptoConstants.MaximumVideoDurationMilliseconds)
+            {
+                errors["durationMilliseconds"] =
+                ["Video duration must be between 0.3 seconds and 2 minutes."];
             }
         }
 

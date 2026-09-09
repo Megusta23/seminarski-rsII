@@ -22,7 +22,7 @@ Sistem se sastoji od:
 * Zahtjevi za prijateljstvo, pretraga korisnika i preporuke
 * Dnevna i sedmična rang-lista
 * Sistemske obavijesti
-* Tekstualni chat i slanje slika
+* End-to-end enkriptovani chat za tekst, slike, glasovne poruke i video
 * Vlastiti profil i profili prijatelja
 
 ### Desktop aplikacija
@@ -227,9 +227,12 @@ Primjeri:
 ./scripts/test-tasks.sh
 ./scripts/test-feed-v2.sh
 ./scripts/test-review-chat-notifications.sh
+./scripts/test-review-e2e-multimedia-chat.sh http://localhost:5001
 ./scripts/test-review-pagination-print.sh
 ./scripts/test-admin-reports.sh
 ```
+
+Privatni chat koristi X25519 device ključeve, HKDF-HMAC-SHA-256 i AES-256-GCM. Privatni ključ i conversation key ostaju u `flutter_secure_storage`, dok backend čuva javne ključeve, encrypted key envelope-e, nonce vrijednosti i ciphertext. Novi Text, Image, Voice i Video sadržaj nema plaintext write endpoint; postojeće `EncryptionVersion = 0` poruke ostaju dostupne samo kao jasno označena legacy historija. Detaljni tok i svjesna multi-device ograničenja opisani su u `docs/e2e-chat-arhitektura.md`.
 
 Direct razgovor ostaje čitljiv nakon uklanjanja prijateljstva, ali je slanje
 novih poruka blokirano dok korisnici ponovo ne postanu prijatelji. Otvorena

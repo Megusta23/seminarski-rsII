@@ -7,11 +7,11 @@ suffix="$(date +%s)-$$"
 PASSWORD='Review_Chat_220087!'
 A_EMAIL="review-chat-a-${suffix}@example.com"
 B_EMAIL="review-chat-b-${suffix}@example.com"
+KNOWN_PLAINTEXT='LEGACY-PLAINTEXT-MUST-NOT-BE-STORED-220087'
 
 register_test_user "$A_EMAIL" "$PASSWORD" Alice Review "${TEMP_DIR}/a.json"
 register_test_user "$B_EMAIL" "$PASSWORD" Bob Review "${TEMP_DIR}/b.json"
 A_TOKEN="$(json_get "${TEMP_DIR}/a.json" accessToken)"
-A_ID="$(json_get "${TEMP_DIR}/a.json" userId)"
 B_TOKEN="$(json_get "${TEMP_DIR}/b.json" accessToken)"
 B_ID="$(json_get "${TEMP_DIR}/b.json" userId)"
 
@@ -30,69 +30,53 @@ CONVERSATION_ID="$(json_get "${TEMP_DIR}/conversation.json" id)"
 }
 echo "PASS: direct conversation reports canSendMessages=true"
 
-LONG_MESSAGE="$(python3 - <<'PY'
-print('x' * 4000)
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/legacy-text.json" "$A_TOKEN" \
+  -F "content=${KNOWN_PLAINTEXT}")"
+expect_status "$status" 405 "legacy plaintext text write is unavailable" "${TEMP_DIR}/legacy-text.json"
+
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/legacy-image.json" "$A_TOKEN" \
+  -F "attachment=@${ROOT_DIR}/src/LadderSocial.Infrastructure/SeedAssets/proofs/hike.png;type=image/png")"
+expect_status "$status" 405 "legacy plaintext image write is unavailable" "${TEMP_DIR}/legacy-image.json"
+
+status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages?page=1&pageSize=20" "${TEMP_DIR}/messages.json" '' "$B_TOKEN")"
+expect_status "$status" 200 "Bob reads conversation history after rejected legacy writes" "${TEMP_DIR}/messages.json"
+python3 - "${TEMP_DIR}/messages.json" "$KNOWN_PLAINTEXT" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding='utf-8') as handle:
+    payload = json.load(handle)
+if payload.get('items'):
+    raise SystemExit(f"FAIL: rejected legacy writes created messages: {payload!r}")
+if int(payload.get('totalCount', -1)) != 0:
+    raise SystemExit(f"FAIL: expected an empty conversation, got {payload!r}")
+if sys.argv[2] in json.dumps(payload):
+    raise SystemExit('FAIL: known plaintext marker appeared in message history')
+print('PASS: rejected legacy writes leave message history empty')
 PY
-)"
-status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/long-message.json" "$A_TOKEN" \
-  -F "content=${LONG_MESSAGE}")"
-expect_status "$status" 201 "4000-character message is saved" "${TEMP_DIR}/long-message.json"
-MESSAGE_ID="$(json_get "${TEMP_DIR}/long-message.json" id)"
 
 status="$(http_request GET "${BASE_URL}/api/notifications?page=1&pageSize=100" "${TEMP_DIR}/notifications.json" '' "$B_TOKEN")"
-expect_status "$status" 200 "Bob loads notifications after long message" "${TEMP_DIR}/notifications.json"
-python3 - "${TEMP_DIR}/notifications.json" "$CONVERSATION_ID" <<'PY'
-import json, sys
+expect_status "$status" 200 "Bob loads notifications after rejected legacy writes" "${TEMP_DIR}/notifications.json"
+python3 - "${TEMP_DIR}/notifications.json" "$CONVERSATION_ID" "$KNOWN_PLAINTEXT" <<'PY'
+import json
+import sys
 with open(sys.argv[1], encoding='utf-8') as handle:
     payload = json.load(handle)
-conversation_id = sys.argv[2].lower()
 items = [
     item for item in payload.get('items', [])
-    if str(item.get('relatedEntityId', '')).lower() == conversation_id
-    and int(item.get('kind', 0)) == 4
+    if str(item.get('relatedEntityId', '')).lower() == sys.argv[2].lower()
 ]
-if not items:
-    raise SystemExit('FAIL: no new-message notification was created')
-body = items[0].get('body', '')
-if body != 'Alice Review sent you a message.':
-    raise SystemExit(f'FAIL: unexpected notification body: {body!r}')
-if len(body) > 2000:
-    raise SystemExit('FAIL: notification body exceeds the database limit')
-if 'x' * 20 in body:
-    raise SystemExit('FAIL: notification body leaked the full chat content')
-print('PASS: long chat content uses a short privacy-safe notification body')
+if items:
+    raise SystemExit(f'FAIL: rejected legacy writes created notifications: {items!r}')
+if sys.argv[3] in json.dumps(payload):
+    raise SystemExit('FAIL: known plaintext marker leaked into notifications')
+print('PASS: rejected legacy writes create no notification and leak no content')
 PY
-
-status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/image-message.json" "$A_TOKEN" \
-  -F "attachment=@${ROOT_DIR}/src/LadderSocial.Infrastructure/SeedAssets/proofs/hike.png;type=image/png")"
-expect_status "$status" 201 "image message is saved" "${TEMP_DIR}/image-message.json"
-
-status="$(http_request GET "${BASE_URL}/api/notifications?page=1&pageSize=100" "${TEMP_DIR}/image-notifications.json" '' "$B_TOKEN")"
-expect_status "$status" 200 "Bob loads notifications after image message" "${TEMP_DIR}/image-notifications.json"
-python3 - "${TEMP_DIR}/image-notifications.json" "$CONVERSATION_ID" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding='utf-8') as handle:
-    payload = json.load(handle)
-conversation_id = sys.argv[2].lower()
-bodies = [
-    item.get('body', '') for item in payload.get('items', [])
-    if str(item.get('relatedEntityId', '')).lower() == conversation_id
-    and int(item.get('kind', 0)) == 4
-]
-if 'Alice Review sent you an image.' not in bodies:
-    raise SystemExit(f'FAIL: image notification body was not privacy-safe: {bodies!r}')
-print('PASS: image chat uses a short privacy-safe notification body')
-PY
-
-status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages?page=1&pageSize=20" "${TEMP_DIR}/messages-before-unfriend.json" '' "$B_TOKEN")"
-expect_status "$status" 200 "Bob reads conversation history before unfriend" "${TEMP_DIR}/messages-before-unfriend.json"
-json_array_contains "${TEMP_DIR}/messages-before-unfriend.json" items id "$MESSAGE_ID"
 
 status="$(http_request DELETE "${BASE_URL}/api/friends/${B_ID}" "${TEMP_DIR}/remove-friend.json" '' "$A_TOKEN")"
 expect_status "$status" 204 "Alice removes Bob from friends" "${TEMP_DIR}/remove-friend.json"
 
 status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}" "${TEMP_DIR}/conversation-after-unfriend.json" '' "$A_TOKEN")"
-expect_status "$status" 200 "conversation history metadata remains readable after unfriend" "${TEMP_DIR}/conversation-after-unfriend.json"
+expect_status "$status" 200 "conversation metadata remains readable after unfriend" "${TEMP_DIR}/conversation-after-unfriend.json"
 [[ "$(json_get "${TEMP_DIR}/conversation-after-unfriend.json" canSendMessages)" == "false" ]] || {
   echo "FAIL: direct conversation must report canSendMessages=false after unfriend" >&2
   exit 1
@@ -101,11 +85,6 @@ echo "PASS: direct conversation becomes read-only after unfriend"
 
 status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages?page=1&pageSize=20" "${TEMP_DIR}/messages-after-unfriend.json" '' "$B_TOKEN")"
 expect_status "$status" 200 "conversation history remains readable after unfriend" "${TEMP_DIR}/messages-after-unfriend.json"
-json_array_contains "${TEMP_DIR}/messages-after-unfriend.json" items id "$MESSAGE_ID"
-
-status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/blocked-message.json" "$A_TOKEN" \
-  -F "content=This message must be blocked")"
-expect_status "$status" 403 "new direct message is blocked after unfriend" "${TEMP_DIR}/blocked-message.json"
 
 status="$(http_request POST "${BASE_URL}/api/friends/requests/${B_ID}" "${TEMP_DIR}/refriend-request.json" '' "$A_TOKEN")"
 expect_status "$status" 201 "Alice sends a new friend request" "${TEMP_DIR}/refriend-request.json"
@@ -125,9 +104,9 @@ expect_status "$status" 201 "existing direct conversation is restored after refr
 }
 echo "PASS: refriending re-enables the existing direct conversation"
 
-status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/restored-message.json" "$A_TOKEN" \
-  -F "content=Messaging works again")"
-expect_status "$status" 201 "new direct message succeeds after refriending" "${TEMP_DIR}/restored-message.json"
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/legacy-after-refriend.json" "$A_TOKEN" \
+  -F "content=${KNOWN_PLAINTEXT}-AFTER-REFRIEND")"
+expect_status "$status" 405 "refriending does not restore the removed plaintext route" "${TEMP_DIR}/legacy-after-refriend.json"
 
 echo
 echo "Chat friendship rules and notification safety review test completed successfully against ${BASE_URL}."

@@ -709,15 +709,21 @@ final class E2ECryptoService {
       }
       return;
     }
+    final int maximumDurationMilliseconds = type == E2EPrivateMessageType.voice
+        ? E2ECryptoConstants.maximumVoiceDurationMilliseconds
+        : E2ECryptoConstants.maximumVideoDurationMilliseconds;
+    final String mediaLabel =
+        type == E2EPrivateMessageType.voice ? 'Voice' : 'Video';
     if (durationMilliseconds == null ||
-        durationMilliseconds < 1 ||
-        durationMilliseconds >
-            E2ECryptoConstants.maximumMediaDurationMilliseconds) {
+        durationMilliseconds <
+            E2ECryptoConstants.minimumMediaDurationMilliseconds ||
+        durationMilliseconds > maximumDurationMilliseconds) {
       throw ArgumentError.value(
         durationMilliseconds,
         'durationMilliseconds',
-        'Voice and video duration must be between 1 millisecond and '
-            '${E2ECryptoConstants.maximumMediaDurationMilliseconds} milliseconds.',
+        '$mediaLabel duration must be between '
+            '${E2ECryptoConstants.minimumMediaDurationMilliseconds} and '
+            '$maximumDurationMilliseconds milliseconds.',
       );
     }
   }

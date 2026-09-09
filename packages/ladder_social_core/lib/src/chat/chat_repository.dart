@@ -10,7 +10,6 @@ import 'package:ladder_social_core/src/models/json_helpers.dart';
 import 'package:ladder_social_core/src/models/paged_json.dart';
 import 'package:ladder_social_core/src/models/paged_result.dart';
 import 'package:ladder_social_core/src/network/api_client.dart';
-import 'package:ladder_social_core/src/tasks/task_models.dart';
 
 final class ChatRepository implements E2EChatTransport {
   const ChatRepository(this._client);
@@ -292,37 +291,6 @@ final class ChatRepository implements E2EChatTransport {
       return await _client.getBytes(normalizedUrl);
     } on DioException catch (error) {
       throw ApiException.from(error);
-    }
-  }
-
-  Future<ChatMessage> sendMessage({
-    required String conversationId,
-    String? content,
-    ImageUpload? attachment,
-  }) async {
-    try {
-      final FormData form = FormData.fromMap(<String, dynamic>{
-        if (content != null && content.trim().isNotEmpty)
-          'content': content.trim(),
-        if (attachment != null)
-          'attachment': MultipartFile.fromBytes(
-            attachment.bytes,
-            filename: attachment.fileName,
-            contentType: DioMediaType.parse(attachment.contentType),
-          ),
-      });
-      final Response<dynamic> response = await _client.dio.post<dynamic>(
-        '/api/conversations/$conversationId/messages',
-        data: form,
-        options: Options(contentType: 'multipart/form-data'),
-      );
-      return ChatMessage.fromJson(
-        jsonMap(response.data, context: 'chat message'),
-      );
-    } on DioException catch (error) {
-      throw ApiException.from(error);
-    } on FormatException catch (error) {
-      throw ApiException(message: error.message);
     }
   }
 

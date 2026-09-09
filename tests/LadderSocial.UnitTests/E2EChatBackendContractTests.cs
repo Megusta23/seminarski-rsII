@@ -70,6 +70,26 @@ public sealed class E2EChatBackendContractTests
     }
 
     [Fact]
+    public void ChatServiceContract_ExposesOnlyCiphertextPrivateMessageWrite()
+    {
+        var methodNames = typeof(IChatService)
+            .GetMethods()
+            .Select(method => method.Name)
+            .ToArray();
+        var exportedTypeNames = typeof(IChatService)
+            .Assembly
+            .ExportedTypes
+            .Select(type => type.Name)
+            .ToArray();
+
+        Assert.Contains(nameof(IChatService.SendEncryptedMessageAsync), methodNames);
+        Assert.DoesNotContain("SendMessageAsync", methodNames);
+        Assert.Contains(nameof(SendEncryptedMessageCommand), exportedTypeNames);
+        Assert.DoesNotContain("SendMessageCommand", exportedTypeNames);
+        Assert.DoesNotContain("SendMessageRequest", exportedTypeNames);
+    }
+
+    [Fact]
     public void ConversationEnvelope_RequiresWrappedKeyNonceAndPositiveVersion()
     {
         var valid = new CreateConversationKeyEnvelopeRequest(
@@ -261,6 +281,39 @@ public sealed class E2EChatBackendContractTests
             E2EChatRules.ValidateEncryptedMessage(invalidMime));
     }
 
+    [Theory]
+    [InlineData(MessageType.Voice, ChatCryptoConstants.MinimumMediaDurationMilliseconds)]
+    [InlineData(MessageType.Voice, ChatCryptoConstants.MaximumVoiceDurationMilliseconds)]
+    [InlineData(MessageType.Video, ChatCryptoConstants.MinimumMediaDurationMilliseconds)]
+    [InlineData(MessageType.Video, ChatCryptoConstants.MaximumVideoDurationMilliseconds)]
+    public void EncryptedTimedMedia_AcceptsClientDurationBoundaries(
+        MessageType type,
+        int durationMilliseconds)
+    {
+        var command = CreateTimedMediaCommand(type, durationMilliseconds);
+
+        E2EChatRules.ValidateEncryptedMessage(command);
+    }
+
+    [Theory]
+    [InlineData(MessageType.Voice, ChatCryptoConstants.MinimumMediaDurationMilliseconds - 1)]
+    [InlineData(MessageType.Voice, ChatCryptoConstants.MaximumVoiceDurationMilliseconds + 1)]
+    [InlineData(MessageType.Video, ChatCryptoConstants.MinimumMediaDurationMilliseconds - 1)]
+    [InlineData(MessageType.Video, ChatCryptoConstants.MaximumVideoDurationMilliseconds + 1)]
+    public void EncryptedTimedMedia_RejectsDurationsOutsideClientContract(
+        MessageType type,
+        int durationMilliseconds)
+    {
+        var command = CreateTimedMediaCommand(type, durationMilliseconds);
+
+        var exception = Assert.Throws<ValidationException>(() =>
+            E2EChatRules.ValidateEncryptedMessage(command));
+
+        Assert.Contains(
+            exception.Errors.Keys,
+            key => string.Equals(key, "durationMilliseconds", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public void E2EConversationPreview_IsGeneric()
     {
@@ -275,4 +328,20 @@ public sealed class E2EChatBackendContractTests
         Assert.NotNull(preview);
         Assert.DoesNotContain(marker, preview);
     }
+
+    private static SendEncryptedMessageCommand CreateTimedMediaCommand(
+        MessageType type,
+        int durationMilliseconds) =>
+        new(
+            type,
+            Guid.NewGuid(),
+            1,
+            null,
+            null,
+            new UploadPayload(
+                Enumerable.Range(0, 32).Select(value => (byte)value).ToArray(),
+                "encrypted-media.bin",
+                ChatCryptoConstants.EncryptedMediaContentType),
+            Nonce,
+            durationMilliseconds);
 }

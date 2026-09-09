@@ -15,7 +15,9 @@ abstract final class E2ECryptoConstants {
   static const int maximumEncryptedMediaBytes = 25 * 1024 * 1024;
   static const int maximumPlainMediaBytes =
       maximumEncryptedMediaBytes - authenticationTagBytes;
-  static const int maximumMediaDurationMilliseconds = 60 * 60 * 1000;
+  static const int minimumMediaDurationMilliseconds = 300;
+  static const int maximumVoiceDurationMilliseconds = 5 * 60 * 1000;
+  static const int maximumVideoDurationMilliseconds = 2 * 60 * 1000;
   static const String encryptedMediaContentType = 'application/octet-stream';
 }
 

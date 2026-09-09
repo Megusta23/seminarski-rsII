@@ -29,6 +29,35 @@ expect_status "$status" 204 "Bob accepts Alice" "${TEMP_DIR}/friend-accept.json"
 status="$(http_request POST "${BASE_URL}/api/conversations/direct/${B_ID}" "${TEMP_DIR}/conversation.json" '' "$A_TOKEN")"
 expect_status "$status" 201 "Alice starts a direct conversation" "${TEMP_DIR}/conversation.json"
 CONVERSATION_ID="$(json_get "${TEMP_DIR}/conversation.json" id)"
+[[ "$(json_get "${TEMP_DIR}/conversation.json" canSendMessages)" == "true" ]] || {
+  echo "FAIL: a direct conversation between friends must be writable" >&2
+  exit 1
+}
+echo "PASS: direct conversation reports canSendMessages=true"
+
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/legacy-text-rejected.json" "$A_TOKEN" \
+  -F "content=${KNOWN_PLAINTEXT}")"
+expect_status "$status" 405 "legacy plaintext text endpoint is absent" "${TEMP_DIR}/legacy-text-rejected.json"
+
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/legacy-image-rejected.json" "$A_TOKEN" \
+  -F "attachment=@${ROOT_DIR}/src/LadderSocial.Infrastructure/SeedAssets/proofs/hike.png;type=image/png")"
+expect_status "$status" 405 "legacy plaintext image endpoint is absent" "${TEMP_DIR}/legacy-image-rejected.json"
+
+status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages?page=1&pageSize=20" "${TEMP_DIR}/history-after-legacy-rejection.json" '' "$B_TOKEN")"
+expect_status "$status" 200 "recipient reads empty history after rejected legacy writes" "${TEMP_DIR}/history-after-legacy-rejection.json"
+python3 - "${TEMP_DIR}/history-after-legacy-rejection.json" "$KNOWN_PLAINTEXT" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+if payload.get("items"):
+    raise SystemExit("FAIL: rejected legacy writes created message rows")
+if int(payload.get("totalCount", -1)) != 0:
+    raise SystemExit(f"FAIL: expected zero messages after legacy rejection, got {payload!r}")
+if sys.argv[2] in json.dumps(payload):
+    raise SystemExit("FAIL: known plaintext marker leaked after rejected legacy write")
+print("PASS: rejected legacy writes create no message content")
+PY
 
 python3 - "${TEMP_DIR}" <<'PY'
 import base64
@@ -49,7 +78,9 @@ values = {
     "imageNonce": bytes(range(137, 149)),
     "voiceNonce": bytes(range(149, 161)),
     "videoNonce": bytes(range(161, 173)),
+    "refriendTextNonce": bytes(range(173, 185)),
     "textCiphertext": b"authenticated-ciphertext-with-tag-220087",
+    "refriendTextCiphertext": b"refriend-authenticated-ciphertext-with-tag-220087",
 }
 encoded = {key: base64.b64encode(value).decode("ascii") for key, value in values.items()}
 (root / "crypto-values.json").write_text(json.dumps(encoded), encoding="utf-8")
@@ -356,5 +387,35 @@ done
 status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages?page=1&pageSize=20" "${TEMP_DIR}/history-after-unfriend.json" '' "$B_TOKEN")"
 expect_status "$status" 200 "encrypted conversation history remains readable after unfriend" "${TEMP_DIR}/history-after-unfriend.json"
 
+status="$(http_request POST "${BASE_URL}/api/friends/requests/${B_ID}" "${TEMP_DIR}/refriend-request.json" '' "$A_TOKEN")"
+expect_status "$status" 201 "Alice sends a new friend request" "${TEMP_DIR}/refriend-request.json"
+REFRIEND_REQUEST_ID="$(json_get "${TEMP_DIR}/refriend-request.json" id)"
+status="$(http_request POST "${BASE_URL}/api/friends/requests/${REFRIEND_REQUEST_ID}/accept" "${TEMP_DIR}/refriend-accept.json" '' "$B_TOKEN")"
+expect_status "$status" 204 "Bob accepts Alice again" "${TEMP_DIR}/refriend-accept.json"
+
+status="$(http_request POST "${BASE_URL}/api/conversations/direct/${B_ID}" "${TEMP_DIR}/conversation-restored.json" '' "$A_TOKEN")"
+expect_status "$status" 201 "existing direct conversation is restored after refriending" "${TEMP_DIR}/conversation-restored.json"
+[[ "$(json_get "${TEMP_DIR}/conversation-restored.json" id)" == "$CONVERSATION_ID" ]] || {
+  echo "FAIL: refriending should reuse the existing direct conversation" >&2
+  exit 1
+}
+[[ "$(json_get "${TEMP_DIR}/conversation-restored.json" canSendMessages)" == "true" ]] || {
+  echo "FAIL: direct conversation should become writable after refriending" >&2
+  exit 1
+}
+echo "PASS: refriending re-enables the existing direct conversation"
+
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages/e2e" "${TEMP_DIR}/restored-e2e-text.json" "$A_TOKEN" \
+  -F "type=1" \
+  -F "senderDeviceKeyId=${A_DEVICE_ID}" \
+  -F "keyVersion=1" \
+  -F "encryptedContentBase64=$(crypto_value refriendTextCiphertext)" \
+  -F "contentNonceBase64=$(crypto_value refriendTextNonce)")"
+expect_status "$status" 201 "encrypted text succeeds after refriending" "${TEMP_DIR}/restored-e2e-text.json"
+
+status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/legacy-still-rejected.json" "$A_TOKEN" \
+  -F "content=${KNOWN_PLAINTEXT}-AFTER-REFRIEND")"
+expect_status "$status" 405 "refriending does not reopen the removed plaintext endpoint" "${TEMP_DIR}/legacy-still-rejected.json"
+
 echo
-echo "E2E chat backend key, envelope, ciphertext, authorization and friendship smoke test completed successfully against ${BASE_URL}."
+echo "E2E chat backend key, envelope, ciphertext, authorization, legacy-write closure and friendship smoke test completed successfully against ${BASE_URL}."

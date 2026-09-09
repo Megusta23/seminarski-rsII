@@ -71,13 +71,6 @@ public sealed record CreateConversationKeyEnvelopeRequest(
     [Required] byte[] Nonce,
     [Range(1, int.MaxValue)] int KeyVersion);
 
-public sealed record SendMessageRequest(
-    [StringLength(4000)] string? Content);
-
-public sealed record SendMessageCommand(
-    string? Content,
-    UploadPayload? Attachment);
-
 public sealed record SendEncryptedMessageCommand(
     MessageType Type,
     Guid SenderDeviceKeyId,
@@ -94,7 +87,6 @@ public interface IChatService
     Task<ConversationResponse> GetConversationAsync(Guid conversationId, CancellationToken cancellationToken);
     Task<ConversationResponse> StartDirectConversationAsync(Guid friendUserId, CancellationToken cancellationToken);
     Task<PagedResult<MessageResponse>> GetMessagesAsync(Guid conversationId, PagedRequest request, CancellationToken cancellationToken);
-    Task<MessageResponse> SendMessageAsync(Guid conversationId, SendMessageCommand command, CancellationToken cancellationToken);
     Task<MessageResponse> SendEncryptedMessageAsync(
         Guid conversationId,
         SendEncryptedMessageCommand command,

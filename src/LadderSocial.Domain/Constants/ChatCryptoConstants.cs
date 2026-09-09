@@ -10,5 +10,7 @@ public static class ChatCryptoConstants
     public const int WrappedConversationKeyBytes = ConversationKeyBytes + AeadTagBytes;
     public const int MaximumEncryptedMessageBytes = 20 * 1024;
     public const int MaximumEncryptedMediaBytes = 25 * 1024 * 1024;
-    public const int MaximumMediaDurationMilliseconds = 60 * 60 * 1000;
+    public const int MinimumMediaDurationMilliseconds = 300;
+    public const int MaximumVoiceDurationMilliseconds = 5 * 60 * 1000;
+    public const int MaximumVideoDurationMilliseconds = 2 * 60 * 1000;
 }

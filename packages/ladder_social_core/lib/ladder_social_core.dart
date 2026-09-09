@@ -13,6 +13,7 @@ export 'src/chat/e2e/e2e_crypto_service.dart';
 export 'src/chat/e2e/e2e_image_validation.dart';
 export 'src/chat/e2e/e2e_key_trust_store.dart';
 export 'src/chat/e2e/e2e_voice_validation.dart';
+export 'src/chat/e2e/e2e_video_validation.dart';
 export 'src/chat/e2e/e2e_secure_storage.dart';
 export 'src/config/app_config.dart';
 export 'src/errors/api_exception.dart';

@@ -9,7 +9,9 @@ import 'package:ladder_social_core/ladder_social_core.dart';
 import 'package:ladder_social_mobile/src/core/providers/core_providers.dart';
 import 'package:ladder_social_mobile/src/core/widgets/mobile_widgets.dart';
 import 'package:ladder_social_mobile/src/features/chat/presentation/encrypted_image_payload.dart';
+import 'package:ladder_social_mobile/src/features/chat/presentation/encrypted_video_payload.dart';
 import 'package:ladder_social_mobile/src/features/chat/presentation/encrypted_voice_payload.dart';
+import 'package:ladder_social_mobile/src/features/chat/presentation/video_selection_service.dart';
 import 'package:ladder_social_mobile/src/features/chat/presentation/voice_recording_service.dart';
 
 final class ChatScreen extends ConsumerStatefulWidget {
@@ -28,6 +30,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late final VoiceRecordingService _voiceRecordingService;
+  late final VideoSelectionService _videoSelectionService;
 
   Timer? _timer;
   Timer? _recordingTimer;
@@ -42,6 +45,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _e2eReady = false;
   bool _recordingVoice = false;
   bool _stoppingVoiceRecording = false;
+  bool _preparingVideo = false;
   Future<bool>? _e2ePreparation;
   int _oldestLoadedPage = 0;
   int _totalPages = 1;
@@ -53,10 +57,14 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   Uint8List? _selectedImageBytes;
   Duration _recordingDuration = Duration.zero;
   VoiceRecordingDraft? _voiceDraft;
+  VideoDraft? _videoDraft;
   double? _voiceUploadProgress;
+  double? _videoUploadProgress;
   final Map<String, Future<Uint8List>> _encryptedImageLoads =
       <String, Future<Uint8List>>{};
   final Map<String, Future<Uint8List>> _encryptedVoiceLoads =
+      <String, Future<Uint8List>>{};
+  final Map<String, Future<Uint8List>> _encryptedVideoLoads =
       <String, Future<Uint8List>>{};
 
   bool get _hasOlderMessages => _oldestLoadedPage < _totalPages;
@@ -65,6 +73,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _voiceRecordingService = VoiceRecordingService();
+    _videoSelectionService = VideoSelectionService();
     _conversation = widget.conversation;
     _canSendMessages = widget.conversation.canSendMessages;
     _scrollController.addListener(_handleScroll);
@@ -97,6 +106,10 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     final VoiceRecordingDraft? draft = _voiceDraft;
     if (draft != null) {
       unawaited(draft.delete());
+    }
+    final VideoDraft? videoDraft = _videoDraft;
+    if (videoDraft != null) {
+      unawaited(videoDraft.delete());
     }
     unawaited(_voiceRecordingService.dispose());
     _messageController.dispose();
@@ -208,7 +221,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         error is E2ECryptoException ||
         error is E2EKeyTrustException ||
         error is E2EImageValidationException ||
-        error is E2EVoiceValidationException) {
+        error is E2EVoiceValidationException ||
+        error is E2EVideoValidationException) {
       return error.toString();
     }
     return fallback;
@@ -253,6 +267,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
           : _mergeMessages(_messages, latest);
       final bool shouldClearVoiceComposer = !conversation.canSendMessages &&
           (_recordingVoice || _stoppingVoiceRecording || _voiceDraft != null);
+      final bool shouldClearVideoComposer = !conversation.canSendMessages &&
+          (_preparingVideo || _videoDraft != null);
       setState(() {
         _conversation = conversation;
         _messages = merged;
@@ -270,6 +286,9 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
       if (shouldClearVoiceComposer) {
         unawaited(_discardVoiceComposer());
+      }
+      if (shouldClearVideoComposer) {
+        unawaited(_discardVideoComposer());
       }
 
       if (_messages.isNotEmpty) {
@@ -393,18 +412,72 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _pickAttachment() async {
-    if (!_canSendMessages || _sending) {
+    if (!_canSendMessages || _sending || _preparingVideo) {
       return;
     }
-    if (_recordingVoice || _stoppingVoiceRecording || _voiceDraft != null) {
+    if (_recordingVoice ||
+        _stoppingVoiceRecording ||
+        _voiceDraft != null ||
+        _videoDraft != null) {
       showMessage(
         context,
-        'Cancel or remove the voice message before attaching an image.',
+        'Remove the current voice or video preview before attaching media.',
         error: true,
       );
       return;
     }
 
+    final _AttachmentChoice? choice =
+        await showModalBottomSheet<_AttachmentChoice>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Image from gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(
+                _AttachmentChoice.imageGallery,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.video_library_outlined),
+              title: const Text('Video from gallery'),
+              onTap: () => Navigator.of(sheetContext).pop(
+                _AttachmentChoice.videoGallery,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam_outlined),
+              title: const Text('Record video'),
+              onTap: () => Navigator.of(sheetContext).pop(
+                _AttachmentChoice.videoCamera,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null) {
+      return;
+    }
+
+    switch (choice) {
+      case _AttachmentChoice.imageGallery:
+        await _pickImage();
+        return;
+      case _AttachmentChoice.videoGallery:
+        await _pickVideo(ImageSource.gallery);
+        return;
+      case _AttachmentChoice.videoCamera:
+        await _pickVideo(ImageSource.camera);
+        return;
+    }
+  }
+
+  Future<void> _pickImage() async {
     try {
       final XFile? file = await ImagePicker().pickImage(
         source: ImageSource.gallery,
@@ -425,7 +498,7 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
       final Uint8List bytes = await file.readAsBytes();
       E2EImageValidator.validate(bytes);
       await _verifyImageCanDecode(bytes);
-      if (!mounted) {
+      if (!mounted || !_canSendMessages) {
         return;
       }
       setState(() => _selectedImageBytes = bytes);
@@ -443,11 +516,56 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _pickVideo(ImageSource source) async {
+    if (_preparingVideo || _videoDraft != null) {
+      return;
+    }
+    setState(() => _preparingVideo = true);
+
+    try {
+      final VideoDraft? draft = await _videoSelectionService.pick(
+        source: source,
+      );
+      if (draft == null) {
+        return;
+      }
+      if (!mounted || !_canSendMessages) {
+        await draft.delete();
+        return;
+      }
+
+      final VideoDraft? previous = _videoDraft;
+      setState(() {
+        _videoDraft = draft;
+        _selectedImageBytes = null;
+      });
+      if (previous != null) {
+        await previous.delete();
+      }
+    } catch (error) {
+      if (mounted) {
+        showMessage(
+          context,
+          _readableError(
+            error,
+            fallback: 'The selected video could not be prepared.',
+          ),
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _preparingVideo = false);
+      }
+    }
+  }
+
   Future<void> _startVoiceRecording() async {
     if (!_canSendMessages ||
         _sending ||
         _recordingVoice ||
-        _stoppingVoiceRecording) {
+        _stoppingVoiceRecording ||
+        _preparingVideo) {
       return;
     }
     if (_selectedImageBytes != null) {
@@ -462,6 +580,14 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
       showMessage(
         context,
         'Remove the current voice preview before recording another one.',
+        error: true,
+      );
+      return;
+    }
+    if (_videoDraft != null) {
+      showMessage(
+        context,
+        'Remove the selected video before recording a voice message.',
         error: true,
       );
       return;
@@ -637,6 +763,28 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _removeVideoDraft() async {
+    final VideoDraft? draft = _videoDraft;
+    if (draft == null || _sending) {
+      return;
+    }
+    setState(() => _videoDraft = null);
+    await draft.delete();
+  }
+
+  Future<void> _discardVideoComposer() async {
+    final VideoDraft? draft = _videoDraft;
+    if (mounted) {
+      setState(() {
+        _videoDraft = null;
+        _videoUploadProgress = null;
+      });
+    }
+    if (draft != null) {
+      await draft.delete();
+    }
+  }
+
   Future<void> _verifyImageCanDecode(Uint8List bytes) async {
     ui.Codec? codec;
     ui.FrameInfo? frame;
@@ -723,6 +871,41 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         message.attachmentNonce?.join(','),
       ].join('|');
 
+  Future<Uint8List> _loadEncryptedVideo(
+    ChatMessage message, {
+    bool forceReload = false,
+  }) {
+    final String? userId =
+        ref.read(mobileAuthControllerProvider).session?.userId;
+    if (userId == null) {
+      return Future<Uint8List>.error(
+        const ApiException(message: 'Authentication is required.'),
+      );
+    }
+
+    final String cacheKey = _encryptedVideoCacheKey(message);
+    if (forceReload) {
+      _encryptedVideoLoads.remove(cacheKey);
+    }
+    return _encryptedVideoLoads.putIfAbsent(
+      cacheKey,
+      () => ref.read(e2eChatCoordinatorProvider).downloadAndDecryptVideo(
+            userId: userId,
+            message: message,
+          ),
+    );
+  }
+
+  String _encryptedVideoCacheKey(ChatMessage message) => <Object?>[
+        message.id,
+        message.attachmentId,
+        message.attachmentUrl,
+        message.attachmentKeyVersion,
+        message.attachmentSizeBytes,
+        message.attachmentDurationMilliseconds,
+        message.attachmentNonce?.join(','),
+      ].join('|');
+
   void _updateVoiceUploadProgress(int transferredBytes, int totalBytes) {
     if (!mounted || !_sending) {
       return;
@@ -733,29 +916,46 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _voiceUploadProgress = progress);
   }
 
+  void _updateVideoUploadProgress(int transferredBytes, int totalBytes) {
+    if (!mounted || !_sending) {
+      return;
+    }
+    final double? progress = totalBytes <= 0
+        ? null
+        : (transferredBytes / totalBytes).clamp(0.0, 1.0).toDouble();
+    setState(() => _videoUploadProgress = progress);
+  }
+
   Future<void> _send() async {
     if (!_canSendMessages ||
         _sending ||
         _recordingVoice ||
-        _stoppingVoiceRecording) {
+        _stoppingVoiceRecording ||
+        _preparingVideo) {
       return;
     }
 
     final String text = _messageController.text.trim();
     final Uint8List? selectedImage = _selectedImageBytes;
     final VoiceRecordingDraft? selectedVoice = _voiceDraft;
-    if (text.isEmpty && selectedImage == null && selectedVoice == null) {
+    final VideoDraft? selectedVideo = _videoDraft;
+    if (text.isEmpty &&
+        selectedImage == null &&
+        selectedVoice == null &&
+        selectedVideo == null) {
       return;
     }
 
     setState(() {
       _sending = true;
       _voiceUploadProgress = selectedVoice == null ? null : 0;
+      _videoUploadProgress = selectedVideo == null ? null : 0;
     });
     final List<ChatMessage> sentMessages = <ChatMessage>[];
     var textSent = false;
     var imageSent = false;
     var voiceSent = false;
+    var videoSent = false;
     try {
       final String? userId =
           ref.read(mobileAuthControllerProvider).session?.userId;
@@ -815,9 +1015,28 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         voiceSent = true;
       }
 
+      if (selectedVideo != null) {
+        final Uint8List localVideoCopy = selectedVideo.bytes;
+        final ChatMessage encryptedVideo =
+            await ref.read(e2eChatCoordinatorProvider).sendEncryptedVideo(
+                  userId: userId,
+                  conversation: _conversation,
+                  clearVideoBytes: localVideoCopy,
+                  durationMilliseconds: selectedVideo.durationMilliseconds,
+                  onUploadProgress: _updateVideoUploadProgress,
+                );
+        _encryptedVideoLoads[_encryptedVideoCacheKey(encryptedVideo)] =
+            Future<Uint8List>.value(localVideoCopy);
+        sentMessages.add(encryptedVideo);
+        videoSent = true;
+      }
+
       if (!mounted) {
         if (voiceSent) {
           await selectedVoice?.delete();
+        }
+        if (videoSent) {
+          await selectedVideo?.delete();
         }
         return;
       }
@@ -832,58 +1051,82 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (voiceSent && identical(_voiceDraft, selectedVoice)) {
           _voiceDraft = null;
         }
+        if (videoSent && identical(_videoDraft, selectedVideo)) {
+          _videoDraft = null;
+        }
       });
       if (voiceSent) {
         await selectedVoice?.delete();
+      }
+      if (videoSent) {
+        await selectedVideo?.delete();
+      }
+      if (!mounted) {
+        return;
       }
       _scrollToBottom(animate: true);
       unawaited(_refreshLatest());
     } catch (error) {
       final ApiException apiError = ApiException.from(error);
-      if (mounted) {
-        setState(() {
-          if (sentMessages.isNotEmpty) {
-            _messages = _mergeMessages(_messages, sentMessages);
-          }
-          if (textSent) {
-            _messageController.clear();
-          }
-          if (imageSent) {
-            _selectedImageBytes = null;
-          }
-          if (voiceSent && identical(_voiceDraft, selectedVoice)) {
-            _voiceDraft = null;
-          }
-          if (error is E2EChatSetupException ||
-              error is E2ECryptoException ||
-              error is E2EKeyTrustException) {
-            _e2eReady = false;
-            _e2eErrorMessage = _readableError(error);
-          }
-        });
+      if (!mounted) {
         if (voiceSent) {
           await selectedVoice?.delete();
         }
-        if (!mounted) {
-          return;
+        if (videoSent) {
+          await selectedVideo?.delete();
         }
-        if (apiError.statusCode == 403) {
-          setState(() {
-            _canSendMessages = false;
-            _selectedImageBytes = null;
-          });
-          unawaited(_discardVoiceComposer());
-        }
-        showMessage(context, apiError.message, error: true);
+        return;
+      }
+      setState(() {
         if (sentMessages.isNotEmpty) {
-          unawaited(_refreshLatest());
+          _messages = _mergeMessages(_messages, sentMessages);
         }
+        if (textSent) {
+          _messageController.clear();
+        }
+        if (imageSent) {
+          _selectedImageBytes = null;
+        }
+        if (voiceSent && identical(_voiceDraft, selectedVoice)) {
+          _voiceDraft = null;
+        }
+        if (videoSent && identical(_videoDraft, selectedVideo)) {
+          _videoDraft = null;
+        }
+        if (error is E2EChatSetupException ||
+            error is E2ECryptoException ||
+            error is E2EKeyTrustException) {
+          _e2eReady = false;
+          _e2eErrorMessage = _readableError(error);
+        }
+      });
+      if (voiceSent) {
+        await selectedVoice?.delete();
+      }
+      if (videoSent) {
+        await selectedVideo?.delete();
+      }
+      if (!mounted) {
+        return;
+      }
+      if (apiError.statusCode == 403) {
+        setState(() {
+          _canSendMessages = false;
+          _selectedImageBytes = null;
+        });
+        unawaited(_discardVoiceComposer());
+        unawaited(_discardVideoComposer());
+      }
+      showMessage(context, apiError.message, error: true);
+      if (sentMessages.isNotEmpty) {
+        unawaited(_refreshLatest());
       }
     } finally {
       if (mounted) {
         setState(() {
           _sending = false;
           _voiceUploadProgress = null;
+          _videoUploadProgress = null;
         });
       }
     }
@@ -901,8 +1144,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(
               message: _e2eReady
-                  ? 'End-to-end encrypted text, images, and voice are ready'
-                  : 'Secure text, image, and voice setup is not ready',
+                  ? 'End-to-end encrypted text, images, voice, and video are ready'
+                  : 'Secure text, image, voice, and video setup is not ready',
               child: Icon(
                 _e2eReady ? Icons.lock_outline : Icons.lock_clock_outlined,
               ),
@@ -959,6 +1202,13 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   error,
                                   fallback:
                                       'The encrypted voice message could not be loaded.',
+                                ),
+                                loadEncryptedVideo: _loadEncryptedVideo,
+                                encryptedVideoErrorText: (Object error) =>
+                                    _readableError(
+                                  error,
+                                  fallback:
+                                      'The encrypted video message could not be loaded.',
                                 ),
                               );
                             },
@@ -1035,6 +1285,46 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
+          if (_preparingVideo && _canSendMessages)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: Row(
+                children: <Widget>[
+                  SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text('Validating and preparing encrypted video...'),
+                  ),
+                ],
+              ),
+            ),
+          if (_videoDraft != null && _canSendMessages)
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              alignment: Alignment.centerLeft,
+              child: Stack(
+                children: <Widget>[
+                  VideoDraftPreview(
+                    path: _videoDraft!.filePath,
+                    durationMilliseconds: _videoDraft!.durationMilliseconds,
+                  ),
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: IconButton.filledTonal(
+                      tooltip: 'Remove video message',
+                      onPressed: _sending
+                          ? null
+                          : () => unawaited(_removeVideoDraft()),
+                      icon: const Icon(Icons.close, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if ((_recordingVoice || _stoppingVoiceRecording) && _canSendMessages)
             _VoiceRecordingComposer(
               duration: _recordingDuration,
@@ -1071,7 +1361,15 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           if (_voiceUploadProgress != null && _canSendMessages)
-            _VoiceUploadProgress(progress: _voiceUploadProgress!),
+            _MediaUploadProgress(
+              progress: _voiceUploadProgress!,
+              label: 'voice message',
+            ),
+          if (_videoUploadProgress != null && _canSendMessages)
+            _MediaUploadProgress(
+              progress: _videoUploadProgress!,
+              label: 'video message',
+            ),
           SafeArea(
             top: false,
             child: Padding(
@@ -1080,12 +1378,14 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   IconButton(
-                    tooltip: 'Attach image',
+                    tooltip: 'Attach image or video',
                     onPressed: _sending ||
                             !_canSendMessages ||
                             _recordingVoice ||
                             _stoppingVoiceRecording ||
-                            _voiceDraft != null
+                            _preparingVideo ||
+                            _voiceDraft != null ||
+                            _videoDraft != null
                         ? null
                         : _pickAttachment,
                     icon: const Icon(Icons.attach_file),
@@ -1096,7 +1396,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                       enabled: _canSendMessages &&
                           !_sending &&
                           !_recordingVoice &&
-                          !_stoppingVoiceRecording,
+                          !_stoppingVoiceRecording &&
+                          !_preparingVideo,
                       maxLines: 5,
                       minLines: 1,
                       maxLength: 4000,
@@ -1108,7 +1409,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       onSubmitted: _canSendMessages &&
                               !_recordingVoice &&
-                              !_stoppingVoiceRecording
+                              !_stoppingVoiceRecording &&
+                              !_preparingVideo
                           ? (_) => unawaited(_send())
                           : null,
                     ),
@@ -1120,8 +1422,10 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                             !_canSendMessages ||
                             _recordingVoice ||
                             _stoppingVoiceRecording ||
+                            _preparingVideo ||
                             _selectedImageBytes != null ||
-                            _voiceDraft != null
+                            _voiceDraft != null ||
+                            _videoDraft != null
                         ? null
                         : () => unawaited(_startVoiceRecording()),
                     icon: const Icon(Icons.mic_none_outlined),
@@ -1131,7 +1435,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
                     onPressed: _sending ||
                             !_canSendMessages ||
                             _recordingVoice ||
-                            _stoppingVoiceRecording
+                            _stoppingVoiceRecording ||
+                            _preparingVideo
                         ? null
                         : () => unawaited(_send()),
                     icon: _sending
@@ -1150,6 +1455,8 @@ final class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 }
+
+enum _AttachmentChoice { imageGallery, videoGallery, videoCamera }
 
 final class _VoiceRecordingComposer extends StatelessWidget {
   const _VoiceRecordingComposer({
@@ -1214,10 +1521,14 @@ final class _VoiceRecordingComposer extends StatelessWidget {
   }
 }
 
-final class _VoiceUploadProgress extends StatelessWidget {
-  const _VoiceUploadProgress({required this.progress});
+final class _MediaUploadProgress extends StatelessWidget {
+  const _MediaUploadProgress({
+    required this.progress,
+    required this.label,
+  });
 
   final double progress;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -1228,7 +1539,7 @@ final class _VoiceUploadProgress extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Encrypting and uploading voice message '
+            'Encrypting and uploading $label '
             '${(normalized * 100).round()}%',
             style: Theme.of(context).textTheme.bodySmall,
           ),
@@ -1288,11 +1599,11 @@ final class _E2EStatusBanner extends StatelessWidget {
           Expanded(
             child: Text(
               isPreparing
-                  ? 'Preparing end-to-end encrypted text, images, and voice...'
+                  ? 'Preparing end-to-end encrypted text, images, voice, and video...'
                   : isReady
-                      ? 'Text, image, and voice messages are end-to-end encrypted.'
+                      ? 'Text, image, voice, and video messages are end-to-end encrypted.'
                       : errorMessage ??
-                          'Secure text, image, and voice setup is waiting for all devices.',
+                          'Secure text, image, voice, and video setup is waiting for all devices.',
               style: TextStyle(color: foreground),
             ),
           ),
@@ -1371,6 +1682,8 @@ final class _MessageBubble extends StatelessWidget {
     required this.encryptedImageErrorText,
     required this.loadEncryptedVoice,
     required this.encryptedVoiceErrorText,
+    required this.loadEncryptedVideo,
+    required this.encryptedVideoErrorText,
     super.key,
   });
 
@@ -1380,6 +1693,8 @@ final class _MessageBubble extends StatelessWidget {
   final EncryptedImageErrorText encryptedImageErrorText;
   final EncryptedVoiceLoader loadEncryptedVoice;
   final EncryptedVoiceErrorText encryptedVoiceErrorText;
+  final EncryptedVideoLoader loadEncryptedVideo;
+  final EncryptedVideoErrorText encryptedVideoErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -1409,6 +1724,8 @@ final class _MessageBubble extends StatelessWidget {
               encryptedImageErrorText: encryptedImageErrorText,
               loadEncryptedVoice: loadEncryptedVoice,
               encryptedVoiceErrorText: encryptedVoiceErrorText,
+              loadEncryptedVideo: loadEncryptedVideo,
+              encryptedVideoErrorText: encryptedVideoErrorText,
             ),
             const SizedBox(height: 6),
             _EncryptionLabel(message: message),
@@ -1431,6 +1748,8 @@ final class _MessagePayload extends StatelessWidget {
     required this.encryptedImageErrorText,
     required this.loadEncryptedVoice,
     required this.encryptedVoiceErrorText,
+    required this.loadEncryptedVideo,
+    required this.encryptedVideoErrorText,
   });
 
   final ChatMessage message;
@@ -1438,6 +1757,8 @@ final class _MessagePayload extends StatelessWidget {
   final EncryptedImageErrorText encryptedImageErrorText;
   final EncryptedVoiceLoader loadEncryptedVoice;
   final EncryptedVoiceErrorText encryptedVoiceErrorText;
+  final EncryptedVideoLoader loadEncryptedVideo;
+  final EncryptedVideoErrorText encryptedVideoErrorText;
 
   @override
   Widget build(BuildContext context) {
@@ -1490,12 +1811,15 @@ final class _MessagePayload extends StatelessWidget {
         errorText: encryptedVoiceErrorText,
       );
     }
+    if (message.type == MessageType.video) {
+      return EncryptedVideoPayload(
+        message: message,
+        load: loadEncryptedVideo,
+        errorText: encryptedVideoErrorText,
+      );
+    }
 
     final ({IconData icon, String label}) presentation = switch (message.type) {
-      MessageType.video => (
-          icon: Icons.videocam_outlined,
-          label: 'Encrypted video',
-        ),
       _ => (
           icon: Icons.lock_outline,
           label: 'Encrypted message',

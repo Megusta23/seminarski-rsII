@@ -8,6 +8,7 @@ import 'package:ladder_social_core/src/chat/e2e/e2e_crypto_service.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_key_trust_store.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_image_validation.dart';
 import 'package:ladder_social_core/src/chat/e2e/e2e_voice_validation.dart';
+import 'package:ladder_social_core/src/chat/e2e/e2e_video_validation.dart';
 import 'package:ladder_social_core/src/errors/api_exception.dart';
 
 typedef E2EDelay = Future<void> Function(Duration duration);
@@ -274,6 +275,60 @@ final class E2EChatCoordinator {
     return response;
   }
 
+  Future<ChatMessage> sendEncryptedVideo({
+    required String userId,
+    required ConversationItem conversation,
+    required List<int> clearVideoBytes,
+    required int durationMilliseconds,
+    E2ETransferProgress? onUploadProgress,
+  }) async {
+    if (!conversation.canSendMessages) {
+      throw const E2EChatSetupException(
+        'New messages are disabled for this conversation. Message history '
+        'remains available.',
+      );
+    }
+
+    E2EVideoValidator.validate(
+      bytes: clearVideoBytes,
+      durationMilliseconds: durationMilliseconds,
+    );
+    final Uint8List localVideoBytes = Uint8List.fromList(clearVideoBytes);
+
+    final _ConversationContext context = await _loadConversationContext(
+      userId: userId,
+      conversation: conversation,
+      keyVersion: currentKeyVersion,
+      forceRefresh: true,
+    );
+    final E2EEncryptedPayload encrypted = await _cryptoService.encryptMedia(
+      conversationId: context.conversationId,
+      keyVersion: context.keyVersion,
+      type: E2EPrivateMessageType.video,
+      conversationKey: context.conversationKey,
+      clearBytes: localVideoBytes,
+      durationMilliseconds: durationMilliseconds,
+    );
+    final ChatMessage response = await _transport.sendEncryptedMedia(
+      conversationId: context.conversationId,
+      senderDeviceKeyId: context.currentDevice.id,
+      keyVersion: context.keyVersion,
+      type: E2EPrivateMessageType.video,
+      payload: encrypted,
+      durationMilliseconds: durationMilliseconds,
+      onUploadProgress: onUploadProgress,
+    );
+
+    _validateEncryptedMediaResponse(
+      response: response,
+      context: context,
+      type: E2EPrivateMessageType.video,
+      requestPayload: encrypted,
+      durationMilliseconds: durationMilliseconds,
+    );
+    return response;
+  }
+
   Future<Uint8List> downloadAndDecryptImage({
     required String userId,
     required ChatMessage message,
@@ -360,6 +415,52 @@ final class E2EChatCoordinator {
       durationMilliseconds: durationMilliseconds,
     );
     return clearVoice;
+  }
+
+  Future<Uint8List> downloadAndDecryptVideo({
+    required String userId,
+    required ChatMessage message,
+  }) async {
+    final _EncryptedMediaDescriptor media =
+        _validateEncryptedVideoMessage(message);
+    final E2EConversationKey conversationKey =
+        await _readOrRecoverConversationKey(
+      userId: userId,
+      conversationId: message.conversationId,
+      keyVersion: media.keyVersion,
+    );
+    final Uint8List cipherText =
+        await _transport.downloadEncryptedAttachment(media.attachmentUrl);
+    if (cipherText.length != media.encryptedSizeBytes) {
+      throw const E2EChatSetupException(
+        'The downloaded encrypted video size does not match the server '
+        'message metadata.',
+      );
+    }
+    if (cipherText.length <= E2ECryptoConstants.authenticationTagBytes ||
+        cipherText.length > E2ECryptoConstants.maximumEncryptedMediaBytes) {
+      throw const E2EChatSetupException(
+        'The downloaded encrypted video has an invalid ciphertext size.',
+      );
+    }
+
+    final int durationMilliseconds = media.durationMilliseconds!;
+    final Uint8List clearVideo = await _cryptoService.decryptMedia(
+      conversationId: message.conversationId,
+      keyVersion: media.keyVersion,
+      type: E2EPrivateMessageType.video,
+      conversationKey: conversationKey,
+      payload: E2EEncryptedPayload(
+        cipherTextWithMac: cipherText,
+        nonce: media.nonce,
+      ),
+      durationMilliseconds: durationMilliseconds,
+    );
+    E2EVideoValidator.validate(
+      bytes: clearVideo,
+      durationMilliseconds: durationMilliseconds,
+    );
+    return clearVideo;
   }
 
   Future<List<ChatMessage>> decryptMessages({
@@ -1320,6 +1421,58 @@ final class E2EChatCoordinator {
         !_isExpectedAttachmentUrl(attachmentUrl, attachmentId)) {
       throw const E2EChatSetupException(
         'The encrypted voice message is missing valid attachment metadata.',
+      );
+    }
+
+    return _EncryptedMediaDescriptor(
+      attachmentUrl: attachmentUrl,
+      nonce: attachmentNonce,
+      encryptedSizeBytes: attachmentSizeBytes,
+      keyVersion: keyVersion,
+      durationMilliseconds: durationMilliseconds,
+    );
+  }
+
+  _EncryptedMediaDescriptor _validateEncryptedVideoMessage(
+    ChatMessage message,
+  ) {
+    if (message.encryptionVersion != ChatEncryptionVersion.clientE2E ||
+        message.type != MessageType.video ||
+        message.content != null ||
+        message.encryptedContent != null ||
+        message.contentNonce != null) {
+      throw const E2EChatSetupException(
+        'The encrypted video message contains invalid plaintext or message '
+        'payload metadata.',
+      );
+    }
+
+    final int? keyVersion = message.keyVersion;
+    final String? attachmentId = message.attachmentId;
+    final String? attachmentUrl = message.attachmentUrl;
+    final List<int>? attachmentNonce = message.attachmentNonce;
+    final int? attachmentSizeBytes = message.attachmentSizeBytes;
+    final int? durationMilliseconds = message.attachmentDurationMilliseconds;
+    if (keyVersion == null ||
+        keyVersion < 1 ||
+        attachmentId == null ||
+        attachmentUrl == null ||
+        message.attachmentMimeType?.toLowerCase() !=
+            E2ECryptoConstants.encryptedMediaContentType ||
+        attachmentNonce == null ||
+        attachmentNonce.length != E2ECryptoConstants.nonceBytes ||
+        message.attachmentEncryptionVersion !=
+            ChatEncryptionVersion.clientE2E ||
+        message.attachmentKeyVersion != keyVersion ||
+        attachmentSizeBytes == null ||
+        attachmentSizeBytes <= E2ECryptoConstants.authenticationTagBytes ||
+        attachmentSizeBytes > E2ECryptoConstants.maximumEncryptedMediaBytes ||
+        durationMilliseconds == null ||
+        durationMilliseconds < E2EVideoValidator.minimumDurationMilliseconds ||
+        durationMilliseconds > E2EVideoValidator.maximumDurationMilliseconds ||
+        !_isExpectedAttachmentUrl(attachmentUrl, attachmentId)) {
+      throw const E2EChatSetupException(
+        'The encrypted video message is missing valid attachment metadata.',
       );
     }
 

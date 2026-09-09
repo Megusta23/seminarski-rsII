@@ -103,7 +103,9 @@ checks = {
     'record dependency is pinned to the compatible major version': 'record: ^6.2.1' in pubspec,
     'just_audio dependency is present': 'just_audio: ^0.10.6' in pubspec,
     'path_provider dependency is present': 'path_provider: ^2.1.5' in pubspec,
-    'Android minSdk supports the recorder plugin': 'minSdk = 23' in gradle,
+    'Android minSdk supports the recorder plugin': (
+        'minSdk = 23' in gradle or 'minSdk = 24' in gradle
+    ),
     'Android manifest requests microphone permission': (
         'android.permission.RECORD_AUDIO' in manifest
     ),
@@ -209,7 +211,8 @@ checks = {
             '_stopVoiceRecording',
             '_cancelVoiceRecording',
             'VoiceDraftPreview(',
-            '_VoiceUploadProgress(',
+            '_MediaUploadProgress(',
+            "label: 'voice message'",
             '.sendEncryptedVoice(',
             'EncryptedVoicePayload(',
         )

@@ -9,11 +9,12 @@ Ovaj dokument se dopunjava kroz više malih implementacijskih paketa. Trenutno s
 3. Flutter kriptografska osnova za X25519 identitet, HKDF, AES-256-GCM, secure storage i lokalni text/media roundtrip;
 4. produkcijski E2E Text tok: registracija uređaja, provjera javnih ključeva, bootstrap conversation keya, slanje ciphertexta i lokalna dekripcija;
 5. produkcijski E2E Image tok: lokalna validacija i dekodiranje, lokalna AES-GCM enkripcija, `application/octet-stream` upload, autorizovani ciphertext download i prikaz tek nakon lokalne autentifikacije i dekripcije;
-6. produkcijski E2E Voice tok: microphone permission, record/stop/cancel, provjera trajanja i AAC/M4A formata, lokalni preview, AES-GCM enkripcija, upload progress, autorizovani ciphertext download, lokalna autentifikacija/dekripcija te play/pause/seek UI.
+6. produkcijski E2E Voice tok: microphone permission, record/stop/cancel, provjera trajanja i AAC/M4A formata, lokalni preview, AES-GCM enkripcija, upload progress, autorizovani ciphertext download, lokalna autentifikacija/dekripcija te play/pause/seek UI;
+7. produkcijski E2E Video tok: Camera ili Gallery izbor, lokalna provjera MP4/MOV/WebM formata, veličine i trajanja, preview, AES-GCM enkripcija, upload progress, autorizovani ciphertext download, lokalna autentifikacija/dekripcija i playback sa seek/progress kontrolama.
 
-Nove tekstualne, image i voice poruke sa mobilnog chat ekrana više ne koriste legacy plaintext/media endpoint. Slanje se prekida ako E2E priprema nije uspješna; nema automatskog fallbacka na plaintext. Postojeće `EncryptionVersion = 0` poruke i slike ostaju čitljive i jasno označene kao legacy.
+Nove tekstualne, image, voice i video poruke sa mobilnog chat ekrana više ne koriste legacy plaintext/media endpoint. Slanje se prekida ako E2E priprema nije uspješna; nema automatskog fallbacka na plaintext. Postojeće `EncryptionVersion = 0` poruke i slike ostaju čitljive i jasno označene kao legacy.
 
-Video korisnički tok dolazi u narednom paketu. Zbog toga se kompletan multimedia chat još ne predstavlja kao završeno E2E rješenje.
+Sva četiri privatna tipa poruke sada imaju klijentski E2E tok. Preostaje objedinjeni završni smoke test, dokumentacijska provjera i priprema artefakata za predaju.
 
 ## Izbor kriptografskih primitiva
 
@@ -208,6 +209,47 @@ Tok prijema i reprodukcije je:
 
 Server zato može vidjeti tip poruke, ciphertext veličinu i trajanje, ali ne vidi audio codec header, originalne audio bajtove, conversation key niti privatni device ključ. Potpuna zaštita clear temporary fajla od iznenadnog prekida procesa zavisi od zaštite aplikacijskog sandboxa; normalni UI lifecycle fajl eksplicitno briše.
 
+## Flutter E2E Video orkestracija
+
+Produkcijski E2E Video tok koristi isti device-key, conversation-key i ciphertext API ugovor kao ostali privatni tipovi. Mobilna aplikacija koristi `image_picker` za izbor videa iz galerije ili pokretanje sistemske kamere, `video_player` za lokalnu provjeru i playback, te `path_provider` za privatne privremene fajlove.
+
+Video poruka je ograničena na 0,3 sekunde do 2 minute i na postojeću maksimalnu clear-media veličinu. Podržani lokalni kontejneri su MP4, QuickTime MOV i WebM, prepoznati po magic bytes potpisu prije bilo kakvog mrežnog poziva.
+
+Tok izbora i previewa je:
+
+1. attachment meni nudi image iz galerije, video iz galerije ili snimanje videa sistemskom kamerom;
+2. `VideoSelectionService` traži video sa maksimalnim dozvoljenim trajanjem;
+3. klijent prije kopiranja provjerava veličinu, zatim učitava bajtove i provjerava `ftyp` ili EBML potpis;
+4. odabrani video se kopira u privatni temporary direktorij kojim upravlja aplikacija;
+5. `video_player` dekodira fajl i daje stvarno trajanje, nakon čega se ponavljaju duration/size/format provjere;
+6. `VideoDraftPreview` omogućava play/pause, seek/progress i uklanjanje videa prije slanja;
+7. cancel, zamjena ili uspješno slanje brišu privremeni clear draft fajl.
+
+Tok slanja je:
+
+1. coordinator pravi defensive kopiju clear video bajtova i ponavlja lokalnu validaciju;
+2. video se enkriptuje AES-256-GCM algoritmom kao `E2EPrivateMessageType.video`;
+3. trajanje u milisekundama je dio authenticated associated data, pa promjena duration metadata uzrokuje authentication failure;
+4. repository šalje samo `ciphertext || authenticationTag`, nonce, sender device-key ID, key version i duration;
+5. server dobija generički `.bin` attachment sa `application/octet-stream` MIME tipom;
+6. upload callback prikazuje progres ciphertext uploada;
+7. klijent prihvata response samo kada type, ciphertext veličina, nonce, key version i duration odgovaraju requestu;
+8. lokalni clear draft se briše poslije uspješnog slanja.
+
+Tok prijema i playbacka je:
+
+1. `EncryptedVideoPayload` prikazuje download/authentication loading stanje, bez video framea;
+2. participant-autorizovani endpoint vraća ciphertext;
+3. coordinator provjerava URL, MIME, veličinu, nonce, encryption version, key version i obavezni duration;
+4. AES-GCM authentication/dekripcija izvršava se lokalno uz Video tip i duration u associated data;
+5. dekriptovani bajtovi ponovo prolaze MP4/MOV/WebM, size i duration provjeru;
+6. tek nakon uspješne autentifikacije clear bytes se zapisuju u privatni temporary fajl i predaju playeru;
+7. dekodirano trajanje mora odgovarati autentifikovanom trajanju uz malu toleranciju kontejnera;
+8. widget nudi play/pause, seek/progress i Retry nakon download, authentication, decoding ili playback greške;
+9. dekriptovani playback fajl briše se pri retry-u i dispose-u widgeta.
+
+Server zato ne vidi originalni kontejner, codec header, video frameove, naziv fajla, conversation key niti privatni device ključ. Kao i kod voice poruke, zaštita od naglog prekida procesa oslanja se i na Android aplikacijski sandbox, dok normalni lifecycle eksplicitno čisti temporary fajlove.
+
 ## TOFU i pinning javnih ključeva
 
 `SecureE2EPeerKeyTrustStore` pri prvom uspješnom susretu pamti Base64 javni ključ po kombinaciji:
@@ -363,6 +405,12 @@ Produkcijski E2E Voice tok:
 bash scripts/test-review-e2e-chat-voice.sh
 ```
 
+Produkcijski E2E Video tok:
+
+```bash
+bash scripts/test-review-e2e-chat-video.sh
+```
+
 Text testovi provjeravaju:
 
 - automatsku registraciju javnog device ključa bez private key polja;
@@ -405,15 +453,28 @@ Voice testovi dodatno provjeravaju:
 - Android konfiguracija sadrži microphone permission i minimalni SDK koji podržava recorder plugin;
 - produkcijski chat ekran nema legacy voice fallback.
 
+Video testovi dodatno provjeravaju:
+
+- lokalno prepoznavanje MP4, QuickTime MOV i WebM potpisa i odbijanje preimenovanog ne-video fajla;
+- izbor iz Camera ili Gallery toka i prosljeđivanje maksimalnog trajanja pickeru;
+- Alice šalje isključivo encrypted video bytes, a Bob dobija identične clear bajtove tek nakon lokalne dekripcije;
+- poznati video plaintext marker nije prisutan u serverskom attachment storage-u;
+- upload progress callback dobija prenesene i ukupne ciphertext bajtove;
+- promijenjen ciphertext ili duration pada na AES-GCM authentication provjeri;
+- nedostajući ili promijenjeni duration u backend responseu se odbija;
+- nevalidan lokalni video se odbija prije device registration, crypto i network rada;
+- UI ne prikazuje video frame niti Play prije uspješnog download/decrypt i decode toka;
+- Retry ponavlja ciphertext download, a play/pause/seek/progress rade tek nad lokalnim clear temporary fajlom;
+- produkcijski chat ekran nema legacy video fallback.
+
 ## Ograničenja trenutne inkrementalne faze
 
-E2E Text, E2E Image i E2E Voice tokovi su aktivni, ali kompletna profesorova multimedia stavka još nije završena:
+E2E Text, E2E Image, E2E Voice i E2E Video tokovi su aktivni. Preostala ograničenja protokola i uređaja su:
 
-- Video picker/camera, preview, validacija, upload/decrypt i playback još nisu spojeni na UI;
 - nema korisničkog interfejsa za opoziv izgubljenog uređaja; `RevokedAtUtc` ostaje spreman za kasniji device-management tok;
 - novi uređaj ne može sam otvoriti historijski conversation key ako još nema svoj envelope; najmanje jedan postojeći uređaj koji već posjeduje ključ mora otvoriti razgovor i kreirati envelope za novi uređaj;
 - nema ručne key-rotation akcije niti migracije postojećih legacy poruka;
 - protokol koristi verzionisani conversation key, a ne Double Ratchet, pa ne obećava per-message forward secrecy;
 - TOFU otkriva promjenu nakon prvog kontakta, ali nema out-of-band safety-number verifikaciju.
 
-Legacy endpoint ostaje u API-ju radi kompatibilnosti sa starom historijom i starijim klijentskim verzijama, ali ažurirani produkcijski chat ekran ga više ne poziva za Text, Image ni Voice submit. Cijeli chat se može označiti kao kompletno E2E tek nakon završetka Video paketa i završnog smoke testa.
+Legacy endpoint ostaje u API-ju radi kompatibilnosti sa starom historijom i starijim klijentskim verzijama, ali ažurirani produkcijski chat ekran ga više ne poziva za Text, Image, Voice ni Video submit. Kompletna profesorova stavka označava se završenom tek nakon objedinjenog smoke testa, ponovne provjere baze, notifikacija i autorizacije te finalnog release pakovanja.

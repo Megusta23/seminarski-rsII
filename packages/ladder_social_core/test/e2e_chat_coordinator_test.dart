@@ -818,6 +818,237 @@ void main() {
     expect(fixture.server.messages, hasLength(1));
     expect(fixture.server.messages.single.content, isNull);
   });
+
+  test('video validation accepts MP4 MOV and WebM magic-byte signatures', () {
+    expect(
+      E2EVideoValidator.validate(
+        bytes: _mp4Bytes('mp4 video'),
+        durationMilliseconds: 1800,
+      ),
+      E2EVideoFormat.mp4,
+    );
+    expect(
+      E2EVideoValidator.validate(
+        bytes: _movBytes('quicktime video'),
+        durationMilliseconds: 1800,
+      ),
+      E2EVideoFormat.quickTime,
+    );
+    expect(
+      E2EVideoValidator.validate(
+        bytes: _webmBytes('webm video'),
+        durationMilliseconds: 1800,
+      ),
+      E2EVideoFormat.webm,
+    );
+    expect(
+      () => E2EVideoValidator.validate(
+        bytes: utf8.encode('renamed-not-video.mp4'),
+        durationMilliseconds: 1800,
+      ),
+      throwsA(isA<E2EVideoValidationException>()),
+    );
+  });
+
+  test('video validation rejects invalid duration and clear byte size', () {
+    expect(
+      () => E2EVideoValidator.validate(
+        bytes: _mp4Bytes('too short'),
+        durationMilliseconds: 100,
+      ),
+      throwsA(isA<E2EVideoValidationException>()),
+    );
+    expect(
+      () => E2EVideoValidator.validate(
+        bytes: _mp4Bytes('too long'),
+        durationMilliseconds: E2EVideoValidator.maximumDurationMilliseconds + 1,
+      ),
+      throwsA(isA<E2EVideoValidationException>()),
+    );
+
+    final Uint8List oversized = Uint8List(
+      E2ECryptoConstants.maximumPlainMediaBytes + 1,
+    )
+      ..[4] = 0x66
+      ..[5] = 0x74
+      ..[6] = 0x79
+      ..[7] = 0x70
+      ..[8] = 0x69
+      ..[9] = 0x73
+      ..[10] = 0x6f
+      ..[11] = 0x6d;
+    expect(
+      () => E2EVideoValidator.validate(
+        bytes: oversized,
+        durationMilliseconds: 1800,
+      ),
+      throwsA(isA<E2EVideoValidationException>()),
+    );
+  });
+
+  test('encrypted video roundtrip authenticates duration and hides clear bytes',
+      () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    final Uint8List clearVideo = _mp4Bytes(
+      'STEP-5-VIDEO-PLAINTEXT-MARKER-zcCsd',
+    );
+    final List<(int, int)> progress = <(int, int)>[];
+
+    final ChatMessage sent = await fixture.alice.sendEncryptedVideo(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVideoBytes: clearVideo,
+      durationMilliseconds: 4200,
+      onUploadProgress: (int transferred, int total) {
+        progress.add((transferred, total));
+      },
+    );
+
+    expect(sent.type, MessageType.video);
+    expect(sent.content, isNull);
+    expect(sent.encryptedContent, isNull);
+    expect(sent.contentNonce, isNull);
+    expect(
+      sent.attachmentMimeType,
+      E2ECryptoConstants.encryptedMediaContentType,
+    );
+    expect(sent.attachmentDurationMilliseconds, 4200);
+    final List<int> storedCipherText =
+        fixture.server.attachments[sent.attachmentUrl]!;
+    expect(
+      storedCipherText.length,
+      clearVideo.length + E2ECryptoConstants.authenticationTagBytes,
+    );
+    expect(_containsContiguousBytes(storedCipherText, clearVideo), isFalse);
+    expect(
+      _containsContiguousBytes(
+        storedCipherText,
+        utf8.encode('STEP-5-VIDEO-PLAINTEXT-MARKER'),
+      ),
+      isFalse,
+    );
+    expect(progress, isNotEmpty);
+    expect(progress.last.$1, storedCipherText.length);
+    expect(progress.last.$2, storedCipherText.length);
+
+    final Uint8List opened = await fixture.bob.downloadAndDecryptVideo(
+      userId: bobUserId,
+      message: fixture.server.messages.single,
+    );
+    expect(opened, orderedEquals(clearVideo));
+  });
+
+  test('tampered encrypted video bytes fail authentication', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedVideo(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVideoBytes: _mp4Bytes('authenticated video'),
+      durationMilliseconds: 3100,
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    fixture.server.attachments[stored.attachmentUrl]![0] ^= 0x01;
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptVideo(
+        userId: bobUserId,
+        message: stored,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
+  });
+
+  test('changed encrypted video duration fails authentication', () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedVideo(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVideoBytes: _mp4Bytes('duration protected video'),
+      durationMilliseconds: 3200,
+    );
+    final ChatMessage stored = fixture.server.messages.single;
+    final ChatMessage changedDuration = _copyWithAttachmentDuration(
+      stored,
+      3201,
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptVideo(
+        userId: bobUserId,
+        message: changedDuration,
+      ),
+      throwsA(isA<E2EAuthenticationException>()),
+    );
+  });
+
+  test('invalid local video is rejected before crypto or network work',
+      () async {
+    final _Fixture fixture = _Fixture();
+
+    await expectLater(
+      fixture.alice.sendEncryptedVideo(
+        userId: aliceUserId,
+        conversation: fixture.conversation,
+        clearVideoBytes: utf8.encode('not an MP4 MOV or WebM video'),
+        durationMilliseconds: 1800,
+      ),
+      throwsA(isA<E2EVideoValidationException>()),
+    );
+    expect(fixture.server.devicesByUser, isEmpty);
+    expect(fixture.server.envelopes, isEmpty);
+    expect(fixture.server.messages, isEmpty);
+    expect(fixture.server.attachments, isEmpty);
+  });
+
+  test('incoming encrypted video without duration is rejected before download',
+      () async {
+    final _Fixture fixture = _Fixture();
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+    await fixture.alice.sendEncryptedVideo(
+      userId: aliceUserId,
+      conversation: fixture.conversation,
+      clearVideoBytes: _mp4Bytes('duration required'),
+      durationMilliseconds: 3300,
+    );
+    final ChatMessage malformed = _copyWithAttachmentDuration(
+      fixture.server.messages.single,
+      null,
+    );
+
+    await expectLater(
+      fixture.bob.downloadAndDecryptVideo(
+        userId: bobUserId,
+        message: malformed,
+      ),
+      throwsA(
+        isA<E2EChatSetupException>().having(
+          (E2EChatSetupException error) => error.message,
+          'message',
+          contains('metadata'),
+        ),
+      ),
+    );
+  });
+
+  test('changed video duration in send response is rejected locally', () async {
+    final _Fixture fixture = _Fixture(invalidVideoDurationResponse: true);
+    await fixture.bob.ensureDeviceRegistered(userId: bobUserId);
+
+    await expectLater(
+      fixture.alice.sendEncryptedVideo(
+        userId: aliceUserId,
+        conversation: fixture.conversation,
+        clearVideoBytes: _mp4Bytes('response duration validation'),
+        durationMilliseconds: 3500,
+      ),
+      throwsA(isA<E2EChatSetupException>()),
+    );
+    expect(fixture.server.messages, hasLength(1));
+    expect(fixture.server.messages.single.content, isNull);
+  });
 }
 
 final class _Fixture {
@@ -826,11 +1057,13 @@ final class _Fixture {
     bool mutateEncryptedResponse = false,
     bool invalidMediaResponse = false,
     bool invalidVoiceDurationResponse = false,
+    bool invalidVideoDurationResponse = false,
   })  : server = _FakeE2EServer(
           invalidPlaintextResponse: invalidPlaintextResponse,
           mutateEncryptedResponse: mutateEncryptedResponse,
           invalidMediaResponse: invalidMediaResponse,
           invalidVoiceDurationResponse: invalidVoiceDurationResponse,
+          invalidVideoDurationResponse: invalidVideoDurationResponse,
         ),
         aliceStorage = _MemorySecureStorage(),
         bobStorage = _MemorySecureStorage() {
@@ -902,6 +1135,7 @@ final class _FakeE2EServer {
     required this.mutateEncryptedResponse,
     required this.invalidMediaResponse,
     required this.invalidVoiceDurationResponse,
+    required this.invalidVideoDurationResponse,
   });
 
   static const String conversationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -911,6 +1145,7 @@ final class _FakeE2EServer {
   final bool mutateEncryptedResponse;
   final bool invalidMediaResponse;
   final bool invalidVoiceDurationResponse;
+  final bool invalidVideoDurationResponse;
   final Map<String, E2EDeviceKeyRecord> devicesByUser =
       <String, E2EDeviceKeyRecord>{};
   final Map<String, E2EConversationKeyEnvelopeRecord> envelopes =
@@ -1126,8 +1361,10 @@ final class _FakeE2ETransport implements E2EChatTransport {
       attachmentEncryptionVersion: ChatEncryptionVersion.clientE2E,
       attachmentKeyVersion: keyVersion,
       attachmentSizeBytes: cipherText.length,
-      attachmentDurationMilliseconds: server.invalidVoiceDurationResponse &&
-              type == E2EPrivateMessageType.voice &&
+      attachmentDurationMilliseconds: ((server.invalidVoiceDurationResponse &&
+                      type == E2EPrivateMessageType.voice) ||
+                  (server.invalidVideoDurationResponse &&
+                      type == E2EPrivateMessageType.video)) &&
               durationMilliseconds != null
           ? durationMilliseconds + 1
           : durationMilliseconds,
@@ -1198,6 +1435,66 @@ Uint8List _aacBytes(String marker) => Uint8List.fromList(<int>[
       0x00,
       0x00,
       0x00,
+      ...utf8.encode(marker),
+    ]);
+
+Uint8List _mp4Bytes(String marker) => Uint8List.fromList(<int>[
+      0x00,
+      0x00,
+      0x00,
+      0x18,
+      0x66,
+      0x74,
+      0x79,
+      0x70,
+      0x69,
+      0x73,
+      0x6f,
+      0x6d,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      ...utf8.encode(marker),
+    ]);
+
+Uint8List _movBytes(String marker) => Uint8List.fromList(<int>[
+      0x00,
+      0x00,
+      0x00,
+      0x18,
+      0x66,
+      0x74,
+      0x79,
+      0x70,
+      0x71,
+      0x74,
+      0x20,
+      0x20,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      ...utf8.encode(marker),
+    ]);
+
+Uint8List _webmBytes(String marker) => Uint8List.fromList(<int>[
+      0x1a,
+      0x45,
+      0xdf,
+      0xa3,
+      0x9f,
+      0x42,
+      0x86,
+      0x81,
+      0x01,
+      0x42,
+      0xf7,
+      0x81,
+      0x01,
+      0x42,
+      0xf2,
+      0x81,
       ...utf8.encode(marker),
     ]);
 

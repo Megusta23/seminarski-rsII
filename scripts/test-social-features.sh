@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/smoke-test-helpers.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-chat-smoke-helpers.sh"
 initialize_smoke_test "${1:-}"
 
 find_reference_id() {
@@ -89,10 +90,26 @@ expect_status "$status" 200 "Alice opens Bob's friend profile" "${TEMP_DIR}/frie
 status="$(http_request POST "${BASE_URL}/api/conversations/direct/${B_ID}" "${TEMP_DIR}/conversation.json" '' "$A_TOKEN")"
 expect_status "$status" 201 "Alice starts direct conversation with Bob" "${TEMP_DIR}/conversation.json"
 CONVERSATION_ID="$(json_get "${TEMP_DIR}/conversation.json" id)"
-status="$(multipart_request POST "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages" "${TEMP_DIR}/message.json" "$A_TOKEN" \
-  -F "content=Hello Bob from the social smoke test")"
-expect_status "$status" 201 "Alice sends a chat message" "${TEMP_DIR}/message.json"
+
+status="$(e2e_register_device "$A_TOKEN" "social-alice-${suffix}" "$(e2e_base64_sequence 1 32)" "${TEMP_DIR}/alice-device.json")"
+expect_status "$status" 200 "Alice registers a public chat device key" "${TEMP_DIR}/alice-device.json"
+A_DEVICE_KEY_ID="$(json_get "${TEMP_DIR}/alice-device.json" id)"
+status="$(e2e_register_device "$B_TOKEN" "social-bob-${suffix}" "$(e2e_base64_sequence 40 32)" "${TEMP_DIR}/bob-device.json")"
+expect_status "$status" 200 "Bob registers a public chat device key" "${TEMP_DIR}/bob-device.json"
+B_DEVICE_KEY_ID="$(json_get "${TEMP_DIR}/bob-device.json" id)"
+
+status="$(e2e_put_envelope "$CONVERSATION_ID" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$A_DEVICE_KEY_ID" "$(e2e_base64_sequence 80 48)" "$(e2e_base64_sequence 130 12)" "${TEMP_DIR}/alice-envelope.json")"
+expect_status "$status" 200 "Alice creates her conversation-key envelope" "${TEMP_DIR}/alice-envelope.json"
+status="$(e2e_put_envelope "$CONVERSATION_ID" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$B_DEVICE_KEY_ID" "$(e2e_base64_sequence 150 48)" "$(e2e_base64_sequence 200 12)" "${TEMP_DIR}/bob-envelope.json")"
+expect_status "$status" 200 "Alice creates Bob's conversation-key envelope" "${TEMP_DIR}/bob-envelope.json"
+
+status="$(e2e_send_text "$CONVERSATION_ID" "$A_TOKEN" "$A_DEVICE_KEY_ID" "$(e2e_base64_text "social-e2e-ciphertext-${suffix}-with-authentication-tag")" "$(e2e_base64_sequence 220 12)" "${TEMP_DIR}/message.json")"
+expect_status "$status" 201 "Alice sends an encrypted chat message" "${TEMP_DIR}/message.json"
 MESSAGE_ID="$(json_get "${TEMP_DIR}/message.json" id)"
+[[ -z "$(json_get "${TEMP_DIR}/message.json" content)" ]] || {
+  echo "FAIL: E2E social smoke response exposed plaintext content" >&2
+  exit 1
+}
 status="$(http_request GET "${BASE_URL}/api/conversations/${CONVERSATION_ID}/messages?page=1&pageSize=20" "${TEMP_DIR}/messages.json" '' "$B_TOKEN")"
 expect_status "$status" 200 "Bob loads authorized conversation messages" "${TEMP_DIR}/messages.json"
 json_array_contains "${TEMP_DIR}/messages.json" items id "$MESSAGE_ID"

@@ -26,6 +26,11 @@ public interface IFileStorageService
         UploadPayload upload,
         CancellationToken cancellationToken);
 
+    Task<StoredFileInfo> SaveEncryptedAsync(
+        string folder,
+        UploadPayload upload,
+        CancellationToken cancellationToken);
+
     Task<FileContentResult> ReadAsync(
         string storageKey,
         string downloadName,

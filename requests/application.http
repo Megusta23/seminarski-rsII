@@ -4,11 +4,24 @@
 @adminEmail = admin@laddersocial.local
 @adminPassword = Admin_Test_220087!
 @userToken = paste-user-access-token
+@friendToken = paste-friend-access-token
 @adminToken = paste-admin-access-token
 @taskId = paste-task-guid
 @friendUserId = paste-friend-user-guid
 @friendRequestId = paste-friend-request-guid
 @conversationId = paste-conversation-guid
+@senderDeviceKeyId = paste-sender-device-key-guid
+@recipientDeviceKeyId = paste-recipient-device-key-guid
+@senderDeviceId = rest-client-sender-device
+@recipientDeviceId = rest-client-recipient-device
+@senderPublicKeyBase64 = AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICE=
+@recipientPublicKeyBase64 = MzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVI=
+@senderEnvelopeBase64 = IiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BR
+@senderEnvelopeNonceBase64 = UlNUVVZXWFlaW1xd
+@recipientEnvelopeBase64 = ZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SV
+@recipientEnvelopeNonceBase64 = mJmam5ydnp+goaKj
+@encryptedTextBase64 = ZmluYWwtcmVzdC1jbGllbnQtY2lwaGVydGV4dC13aXRoLTE2LWJ5dGUtdGFn
+@encryptedTextNonceBase64 = q6ytrq+wsbKztLW2
 @postId = paste-post-guid
 @notificationId = paste-notification-guid
 @countryId = paste-country-guid
@@ -121,16 +134,87 @@ Authorization: Bearer {{userToken}}
 POST {{baseUrl}}/api/conversations/direct/{{friendUserId}}
 Authorization: Bearer {{userToken}}
 
-### Send text message
-POST {{baseUrl}}/api/conversations/{{conversationId}}/messages
+### Register sender public device key
+# The Flutter client generates the X25519 key pair. Only this public key is sent.
+PUT {{baseUrl}}/api/conversations/device-keys
 Authorization: Bearer {{userToken}}
-Content-Type: multipart/form-data; boundary=MessageBoundary
+Content-Type: application/json
 
---MessageBoundary
-Content-Disposition: form-data; name="content"
+{
+  "deviceId": "{{senderDeviceId}}",
+  "publicKey": "{{senderPublicKeyBase64}}"
+}
 
-Hello from the REST Client request collection.
---MessageBoundary--
+### Register recipient public device key (run as the friend account)
+PUT {{baseUrl}}/api/conversations/device-keys
+Authorization: Bearer {{friendToken}}
+Content-Type: application/json
+
+{
+  "deviceId": "{{recipientDeviceId}}",
+  "publicKey": "{{recipientPublicKeyBase64}}"
+}
+
+### List conversation public device keys
+GET {{baseUrl}}/api/conversations/{{conversationId}}/device-keys?page=1&pageSize=100
+Authorization: Bearer {{userToken}}
+
+### Store sender's encrypted conversation-key envelope
+# Paste the device-key GUIDs returned by the registration responses above.
+# The encryptedConversationKey and nonce are produced locally by Flutter.
+PUT {{baseUrl}}/api/conversations/{{conversationId}}/key-envelopes
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "recipientDeviceKeyId": "{{senderDeviceKeyId}}",
+  "senderDeviceKeyId": "{{senderDeviceKeyId}}",
+  "encryptedConversationKey": "{{senderEnvelopeBase64}}",
+  "nonce": "{{senderEnvelopeNonceBase64}}",
+  "keyVersion": 1
+}
+
+### Store recipient's encrypted conversation-key envelope
+PUT {{baseUrl}}/api/conversations/{{conversationId}}/key-envelopes
+Authorization: Bearer {{userToken}}
+Content-Type: application/json
+
+{
+  "recipientDeviceKeyId": "{{recipientDeviceKeyId}}",
+  "senderDeviceKeyId": "{{senderDeviceKeyId}}",
+  "encryptedConversationKey": "{{recipientEnvelopeBase64}}",
+  "nonce": "{{recipientEnvelopeNonceBase64}}",
+  "keyVersion": 1
+}
+
+### Send end-to-end encrypted text
+# These Base64 fields are ciphertext and nonce generated on the Flutter client.
+# No plaintext content field is accepted by the private-message write endpoint.
+POST {{baseUrl}}/api/conversations/{{conversationId}}/messages/e2e
+Authorization: Bearer {{userToken}}
+Content-Type: multipart/form-data; boundary=EncryptedMessageBoundary
+
+--EncryptedMessageBoundary
+Content-Disposition: form-data; name="type"
+
+1
+--EncryptedMessageBoundary
+Content-Disposition: form-data; name="senderDeviceKeyId"
+
+{{senderDeviceKeyId}}
+--EncryptedMessageBoundary
+Content-Disposition: form-data; name="keyVersion"
+
+1
+--EncryptedMessageBoundary
+Content-Disposition: form-data; name="encryptedContentBase64"
+
+{{encryptedTextBase64}}
+--EncryptedMessageBoundary
+Content-Disposition: form-data; name="contentNonceBase64"
+
+{{encryptedTextNonceBase64}}
+--EncryptedMessageBoundary--
 
 ### Conversation messages
 GET {{baseUrl}}/api/conversations/{{conversationId}}/messages?page=1&pageSize=20

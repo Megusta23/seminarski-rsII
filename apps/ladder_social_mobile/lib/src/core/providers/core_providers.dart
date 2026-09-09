@@ -43,10 +43,12 @@ final Provider<ReferenceDataRepository> referenceDataRepositoryProvider =
   ),
 );
 
-final Provider<TaskRepository> taskRepositoryProvider = Provider<TaskRepository>(
+final Provider<TaskRepository> taskRepositoryProvider =
+    Provider<TaskRepository>(
   (Ref ref) => TaskRepository(TaskApiService(ref.watch(apiClientProvider))),
 );
-final Provider<FeedRepository> feedRepositoryProvider = Provider<FeedRepository>(
+final Provider<FeedRepository> feedRepositoryProvider =
+    Provider<FeedRepository>(
   (Ref ref) => FeedRepository(ref.watch(apiClientProvider)),
 );
 final Provider<FriendRepository> friendRepositoryProvider =
@@ -61,8 +63,25 @@ final Provider<NotificationDataSource> notificationRepositoryProvider =
     Provider<NotificationDataSource>(
   (Ref ref) => NotificationRepository(ref.watch(apiClientProvider)),
 );
-final Provider<ChatRepository> chatRepositoryProvider = Provider<ChatRepository>(
+final Provider<ChatRepository> chatRepositoryProvider =
+    Provider<ChatRepository>(
   (Ref ref) => ChatRepository(ref.watch(apiClientProvider)),
+);
+final Provider<E2ECryptoService> e2eCryptoServiceProvider =
+    Provider<E2ECryptoService>(
+  (Ref ref) => E2ECryptoService(),
+);
+final Provider<E2EPeerKeyTrustStore> e2ePeerKeyTrustStoreProvider =
+    Provider<E2EPeerKeyTrustStore>(
+  (Ref ref) => SecureE2EPeerKeyTrustStore(),
+);
+final Provider<E2EChatCoordinator> e2eChatCoordinatorProvider =
+    Provider<E2EChatCoordinator>(
+  (Ref ref) => E2EChatCoordinator(
+    transport: ref.watch(chatRepositoryProvider),
+    cryptoService: ref.watch(e2eCryptoServiceProvider),
+    keyTrustStore: ref.watch(e2ePeerKeyTrustStoreProvider),
+  ),
 );
 final Provider<MediaRepository> mediaRepositoryProvider =
     Provider<MediaRepository>(
@@ -122,7 +141,8 @@ final AutoDisposeFutureProvider<List<ReferenceItem>> recurrenceTypesProvider =
   return ref.watch(referenceDataRepositoryProvider).getRecurrenceTypes();
 });
 
-final AutoDisposeFutureProvider<NotificationSummary> notificationSummaryProvider =
+final AutoDisposeFutureProvider<NotificationSummary>
+    notificationSummaryProvider =
     FutureProvider.autoDispose<NotificationSummary>((Ref ref) async {
   _requireAuthenticated(ref);
   return ref.watch(notificationRepositoryProvider).getSummary();

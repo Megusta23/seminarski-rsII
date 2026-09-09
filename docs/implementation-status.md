@@ -11,17 +11,20 @@
 - Feed: shared unfinished and completed friend tasks, proof/no-proof and unseen/seen states, date filtering, server-calculated friend progress, stable pagination and protected proof access.
 - Ranking: daily and weekly leaderboard.
 - Notifications: persisted read/unread notifications, summary, mark-read actions, polling and SignalR server hub.
-- Chat: direct conversations, membership authorization, text/image messages, read state, polling and SignalR server hub.
+- Chat: direct conversations, membership authorization, E2E Text/Image/Voice/Video poruke, lokalni media preview/playback, read state, polling i SignalR server hub.
 - Administration: dashboard, users, activation/deactivation, post moderation and reference data.
 - Reporting: application activity PDF and individual user activity PDF.
 
-## Deliberately reduced scope
+## E2E chat sigurnosni opseg
 
-The seminar implementation does not claim production-grade end-to-end encrypted chat, voice/video messages, music overlays or a full photo editor. Text and image chat plus secure server authorization form the implemented scope. This avoids presenting unimplemented UI controls and keeps the submission aligned with demonstrable functionality.
+Novi privatni Text, Image, Voice i Video sadržaj enkriptuje se na Flutter klijentu. Backend čuva samo javne device ključeve, encrypted conversation-key envelope-e, nonce vrijednosti, ciphertext i neosjetljive metapodatke. Legacy `EncryptionVersion = 0` historija ostaje read-only, a stari plaintext write endpoint je uklonjen.
+
+Implementacija svjesno ne tvrdi da je Signal Protocol: koristi verzionisani conversation key, X25519, HKDF-HMAC-SHA-256, AES-256-GCM i TOFU pinning, bez Double Ratchet per-message forward secrecy i bez out-of-band safety-number verifikacije. Ta ograničenja su detaljno opisana u `docs/e2e-chat-arhitektura.md`.
 
 ## Remaining submission work
 
 - Execute every smoke test against a clean Docker environment.
+- Run `scripts/test-review-e2e-multimedia-chat.sh` and preserve its successful output for the final review evidence.
 - Complete manual mobile and desktop UX testing.
 - Create realistic seed/demo data if the current database is too sparse.
 - Produce and test the Android release APK.

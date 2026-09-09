@@ -131,6 +131,49 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                     b.ToTable("Conversations", (string)null);
                 });
 
+            modelBuilder.Entity("LadderSocial.Domain.Entities.ConversationKeyEnvelope", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("EncryptedConversationKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("varbinary(64)");
+
+                    b.Property<int>("KeyVersion")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("Nonce")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("varbinary(24)");
+
+                    b.Property<Guid>("RecipientDeviceKeyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SenderDeviceKeyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecipientDeviceKeyId");
+
+                    b.HasIndex("SenderDeviceKeyId");
+
+                    b.HasIndex("ConversationId", "RecipientDeviceKeyId", "KeyVersion")
+                        .IsUnique();
+
+                    b.ToTable("ConversationKeyEnvelopes", (string)null);
+                });
+
             modelBuilder.Entity("LadderSocial.Domain.Entities.ConversationParticipant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -280,6 +323,10 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
 
+                    b.Property<byte[]>("ContentNonce")
+                        .HasMaxLength(24)
+                        .HasColumnType("varbinary(24)");
+
                     b.Property<Guid>("ConversationId")
                         .HasColumnType("uniqueidentifier");
 
@@ -295,8 +342,17 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("DeletedByUserId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<byte[]>("EncryptedContent")
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<int>("EncryptionVersion")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
+
+                    b.Property<int?>("KeyVersion")
+                        .HasColumnType("int");
 
                     b.Property<Guid>("SenderUserId")
                         .HasColumnType("uniqueidentifier");
@@ -328,11 +384,24 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<byte[]>("ContentNonce")
+                        .HasMaxLength(24)
+                        .HasColumnType("varbinary(24)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("DurationMilliseconds")
+                        .HasColumnType("int");
+
+                    b.Property<int>("EncryptionVersion")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("KeyVersion")
+                        .HasColumnType("int");
 
                     b.Property<Guid>("MessageId")
                         .HasColumnType("uniqueidentifier");
@@ -948,6 +1017,44 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                     b.ToTable("TaskProofItems", (string)null);
                 });
 
+            modelBuilder.Entity("LadderSocial.Domain.Entities.UserDeviceKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeviceId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("PublicKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varbinary(32)");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "DeviceId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "RevokedAtUtc");
+
+                    b.ToTable("UserDeviceKeys", (string)null);
+                });
+
             modelBuilder.Entity("LadderSocial.Domain.Entities.UserProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1228,6 +1335,27 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("LadderSocial.Domain.Entities.ConversationKeyEnvelope", b =>
+                {
+                    b.HasOne("LadderSocial.Domain.Entities.Conversation", null)
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LadderSocial.Domain.Entities.UserDeviceKey", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientDeviceKeyId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("LadderSocial.Domain.Entities.UserDeviceKey", null)
+                        .WithMany()
+                        .HasForeignKey("SenderDeviceKeyId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("LadderSocial.Domain.Entities.ConversationParticipant", b =>
                 {
                     b.HasOne("LadderSocial.Domain.Entities.Conversation", null)
@@ -1443,6 +1571,15 @@ namespace LadderSocial.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("TaskCompletionId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LadderSocial.Domain.Entities.UserDeviceKey", b =>
+                {
+                    b.HasOne("LadderSocial.Infrastructure.Identity.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

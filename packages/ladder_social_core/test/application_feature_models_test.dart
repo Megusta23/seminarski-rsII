@@ -48,7 +48,6 @@ void main() {
     expect(task.recentCompletions.single.proofMediaId, 'proof-id');
   });
 
-
   test('task list and completion options preserve UTC business dates', () {
     final TaskListItem item = TaskListItem.fromJson(<String, dynamic>{
       'id': 'task-id',
@@ -175,7 +174,8 @@ void main() {
     expect(recommendation.explanation, contains('3 mutual friends'));
   });
 
-  test('chat, notification, leaderboard and admin models parse typed values', () {
+  test('chat, notification, leaderboard and admin models parse typed values',
+      () {
     final ChatMessage message = ChatMessage.fromJson(<String, dynamic>{
       'id': 'message-id',
       'conversationId': 'conversation-id',
@@ -183,6 +183,10 @@ void main() {
       'senderDisplayName': 'Sender',
       'type': 1,
       'content': 'Hello',
+      'encryptedContent': null,
+      'contentNonce': null,
+      'encryptionVersion': ChatEncryptionVersion.legacyPlaintext,
+      'keyVersion': null,
       'sentAtUtc': '2026-08-20T16:00:00Z',
       'attachmentId': null,
       'attachmentUrl': null,

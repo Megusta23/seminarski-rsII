@@ -25,6 +25,8 @@ public sealed class ApplicationDbContext(
     public DbSet<PostView> PostViews => Set<PostView>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<ConversationParticipant> ConversationParticipants => Set<ConversationParticipant>();
+    public DbSet<UserDeviceKey> UserDeviceKeys => Set<UserDeviceKey>();
+    public DbSet<ConversationKeyEnvelope> ConversationKeyEnvelopes => Set<ConversationKeyEnvelope>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<MessageAttachment> MessageAttachments => Set<MessageAttachment>();
     public DbSet<Notification> Notifications => Set<Notification>();

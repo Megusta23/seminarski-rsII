@@ -43,10 +43,28 @@ final class _AuthenticatedHomeScreenState
   @override
   void initState() {
     super.initState();
+    unawaited(_registerE2EDevice());
     _notificationTimer = Timer.periodic(
       const Duration(seconds: 20),
       (_) => ref.invalidate(notificationSummaryProvider),
     );
+  }
+
+  Future<void> _registerE2EDevice() async {
+    final String? userId =
+        ref.read(mobileAuthControllerProvider).session?.userId;
+    if (userId == null) {
+      return;
+    }
+
+    try {
+      await ref
+          .read(e2eChatCoordinatorProvider)
+          .ensureDeviceRegistered(userId: userId);
+    } catch (_) {
+      // Opening a chat retries registration and displays a specific error.
+      return;
+    }
   }
 
   @override

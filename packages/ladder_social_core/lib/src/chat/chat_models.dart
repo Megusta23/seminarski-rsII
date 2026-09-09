@@ -5,6 +5,8 @@ abstract final class MessageType {
   static const int text = 1;
   static const int image = 2;
   static const int system = 3;
+  static const int voice = 4;
+  static const int video = 5;
 }
 
 final class ConversationParticipant {
